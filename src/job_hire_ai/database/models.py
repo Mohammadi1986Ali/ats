@@ -132,8 +132,13 @@ class CriteriaConfiguration(Base):
             "vacancy_id",
             unique=True,
             sqlite_where=text("status = 'APPROVED'"),
+            postgresql_where=text("status = 'APPROVED'"),
         ),
-        Index("uq_current_draft", "vacancy_id", unique=True, sqlite_where=text("status = 'DRAFT'")),
+        Index(
+            "uq_current_draft", "vacancy_id", unique=True,
+            sqlite_where=text("status = 'DRAFT'"),
+            postgresql_where=text("status = 'DRAFT'"),
+        ),
     )
     id: Mapped[int] = mapped_column(primary_key=True)
     vacancy_id: Mapped[int] = mapped_column(ForeignKey("vacancies.id"), index=True)
@@ -165,7 +170,7 @@ class JobCriterion(Base):
         CheckConstraint("evidence_status IN ('VERIFIED', 'UNVERIFIED')"),
         CheckConstraint("created_by IN ('AI', 'AI_MODIFIED', 'MANUAL')"),
         CheckConstraint(
-            "weight IS NULL OR (typeof(weight) = 'integer' AND weight BETWEEN 0 AND 100)"
+            "weight IS NULL OR weight BETWEEN 0 AND 100"
         ),
         CheckConstraint("display_order BETWEEN 1 AND 50"),
     )
