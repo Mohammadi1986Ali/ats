@@ -143,7 +143,7 @@ def monitor_live(ats):
     st.subheader("Pipeline stages")
     st.dataframe(pd.DataFrame(stage_breakdown(all_items)), hide_index=True,
                  width="stretch")
-    st.caption("Stages after text extraction are placeholders until later phases are implemented.")
+    st.caption("Embedding runs when enabled; profile, evidence, matching and scoring are future phases.")
     st.subheader("CV monitor")
     filter_col, search_col = st.columns([1, 2])
     with filter_col:
