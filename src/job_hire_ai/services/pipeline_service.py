@@ -198,7 +198,10 @@ class PipelineService:
                 select(Vacancy, CandidateDocument, JobApplication, DocumentPipelineStage)
                 .join(JobApplication, JobApplication.vacancy_id == Vacancy.id)
                 .join(CandidateDocument, CandidateDocument.application_id == JobApplication.id)
-                .join(DocumentPipelineStage, DocumentPipelineStage.document_id == CandidateDocument.id)
+                .join(
+                    DocumentPipelineStage,
+                    DocumentPipelineStage.document_id == CandidateDocument.id,
+                )
                 .where(JobApplication.status == "Uploaded")
             )
             if vacancy_id is not None:
@@ -235,8 +238,14 @@ class PipelineService:
             result = []
             for row in details.values():
                 row["Current stage"] = next(
-                    (label for label in PIPELINE_STAGES if row.get(label) in {"PENDING", "RUNNING", "FAILED"}),
-                    "Awaiting future pipeline stages" if row.get("TEXT_EXTRACTION") == "COMPLETED" else "Unknown",
+                    (
+                        label
+                        for label in PIPELINE_STAGES
+                        if row.get(label) in {"PENDING", "RUNNING", "FAILED"}
+                    ),
+                    "Awaiting future pipeline stages"
+                    if row.get("TEXT_EXTRACTION") == "COMPLETED"
+                    else "Unknown",
                 )
                 result.append(row)
             return list(summary.values()), result
