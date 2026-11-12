@@ -1,7 +1,7 @@
 from alembic import context
-from job_hire_ai.database.session import build_engine
 
 from job_hire_ai.database.models import Base
+from job_hire_ai.database.session import build_engine
 from job_hire_ai.settings import Settings
 
 config = context.config
