@@ -11,14 +11,6 @@ from pathlib import Path
 from sqlalchemy import select, update
 from sqlalchemy.orm import aliased
 
-from job_hire_ai.services.embedding_service import (
-    EmbeddingService,
-    LocalEmbedder,
-    chunk_cv,
-    chunk_jd,
-    source_hash,
-)
-
 from job_hire_ai.database.models import (
     CandidateDocument,
     DocumentPipelineStage,
@@ -28,6 +20,13 @@ from job_hire_ai.database.models import (
     now,
 )
 from job_hire_ai.errors import ATSError
+from job_hire_ai.services.embedding_service import (
+    EmbeddingService,
+    LocalEmbedder,
+    chunk_cv,
+    chunk_jd,
+    source_hash,
+)
 from job_hire_ai.text_extraction import EXTRACTOR_VERSION, ExtractedText, TextExtractor
 
 logger = logging.getLogger(__name__)
