@@ -1,0 +1,34 @@
+[project]
+name = "job-hire-ai"
+version = "0.3.1"
+description = "Local ATS with HR-reviewed job description analysis"
+requires-python = ">=3.12"
+dependencies = [
+  "streamlit>=1.40,<2", "sqlalchemy>=2.0,<3", "alembic>=1.14,<2",
+  "pymupdf>=1.24,<2", "python-docx>=1.1,<2", "pydantic>=2.10,<3",
+  "pydantic-settings>=2.6,<3", "pandas>=2.2,<3",
+  "ollama>=0.6,<1", "httpx>=0.28,<1",
+]
+
+[dependency-groups]
+dev = ["pytest>=8,<10", "ruff>=0.9,<1"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/job_hire_ai"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "."]
+markers = ["live_ollama: opt-in tests requiring a locally installed Ollama model"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = [".tools", ".uv-cache"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
