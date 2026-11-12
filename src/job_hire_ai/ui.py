@@ -21,63 +21,10 @@ def notify(message):
 
 
 def dashboard(ats):
-    st.title("Dashboard")
-    st.caption("Recruitment activity from your local database.")
-    vacancies = ats.vacancies.list()
-    selected = st.selectbox(
-        "Vacancy filter",
-        [None, *vacancies],
-        format_func=lambda v: "All vacancies" if v is None else vacancy_label(v),
-    )
-    data = ats.dashboard.snapshot(selected.id if selected else None)
-    for column, (name, count) in zip(st.columns(5), data["metrics"].items(), strict=True):
-        column.metric(name, count)
-    st.caption("Applications and CVs count current uploads. Candidate records include history.")
-    cv_data = ats.cv_analysis.dashboard(selected.id if selected else None)
-    st.subheader("CV analysis activity")
-    for column, (name, count) in zip(st.columns(6), cv_data["metrics"].items(), strict=True):
-        column.metric(name, count)
-    st.caption(
-        "Failed CVs use the latest job; older profiles can still exist. Average duration excludes "
-        "cache reuse. Missing information is not a confirmed lack of qualification."
-    )
-    if cv_data["vacancies"]:
-        st.dataframe(pd.DataFrame(cv_data["vacancies"]), hide_index=True, width="stretch")
-    _pipeline_live(ats, selected.id if selected else None)
-    st.subheader("Job requirements readiness")
-    for column, (name, count) in zip(st.columns(4), data["criteria_metrics"].items(), strict=True):
-        column.metric(name, count)
-    st.caption(
-        "Approved counts require a matching job description. Draft and outdated counts may overlap."
-    )
-    if data["unfinished_configurations"]:
-        with st.expander("Unfinished job configurations"):
-            st.dataframe(pd.DataFrame(data["unfinished_configurations"]), hide_index=True)
-            for row in data["unfinished_configurations"]:
-                st.button(
-                    f"Configure {row['ID']} · {row['Vacancy']}",
-                    key=f"configure_{row['ID']}",
-                    on_click=_open_job,
-                    args=(row["ID"],),
-                )
-    if not vacancies:
-        st.info("No vacancies yet. Open Job Management to create your first vacancy.")
-    st.subheader("Applications per vacancy")
-    if data["counts"]:
-        frame = pd.DataFrame(data["counts"])
-        st.bar_chart(frame.set_index("Vacancy"))
-        st.dataframe(frame, hide_index=True, width="stretch")
-    else:
-        st.info("No vacancy activity to show.")
-    for label, rows in [
-        ("Recent vacancies", data["recent_vacancies"]),
-        ("Recent CV uploads", data["recent_uploads"]),
-    ]:
-        st.subheader(label)
-        if rows:
-            st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
-        else:
-            st.info("No records yet.")
+    """Compatibility entry point for the redesigned dashboard."""
+    from job_hire_ai.dashboard_ui import dashboard as render_dashboard
+
+    render_dashboard(ats)
 
 
 @st.fragment(run_every="4s")
