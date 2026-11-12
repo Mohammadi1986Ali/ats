@@ -43,6 +43,7 @@ def dashboard(ats):
     )
     if cv_data["vacancies"]:
         st.dataframe(pd.DataFrame(cv_data["vacancies"]), hide_index=True, width="stretch")
+    _pipeline_live(ats, selected.id if selected else None)
     st.subheader("Job requirements readiness")
     for column, (name, count) in zip(st.columns(4), data["criteria_metrics"].items(), strict=True):
         column.metric(name, count)
@@ -77,6 +78,20 @@ def dashboard(ats):
             st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
         else:
             st.info("No records yet.")
+
+
+@st.fragment(run_every="4s")
+def _pipeline_live(ats, vacancy_id=None):
+    summary, items = ats.pipeline.overview(vacancy_id)
+    st.subheader("Automatic CV pipeline — live")
+    st.caption("Upload starts text extraction automatically. Later AI, matching, scoring and HR stages are not active in Phase 1.")
+    if summary:
+        st.dataframe(pd.DataFrame(summary), hide_index=True, width="stretch")
+        if items:
+            cols = ["Job", "Application", "CV", "Filename", "TEXT_EXTRACTION", "Current stage", "TEXT_EXTRACTION_error"]
+            st.dataframe(pd.DataFrame(items)[cols], hide_index=True, width="stretch")
+    else:
+        st.info("No CV pipeline jobs for this selection yet.")
 
 
 def vacancy_fields(prefix, vacancy=None):
@@ -188,6 +203,7 @@ def candidates(ats):
         st.info(
             "Archived vacancy: historical applications are available below. Reactivate to upload."
         )
+    _pipeline_live(ats, vacancy.id)
     _applications(ats, vacancy)
 
 
@@ -233,6 +249,7 @@ def _upload(ats, vacancy):
                 vacancy.id, prepared, chosen.id if chosen else None
             )
         st.session_state.upload_results = [r.model_dump() for r in results]
+        ats.pipeline.ensure_worker()
         st.session_state.upload_generation = generation + 1
         st.rerun()
     if results := st.session_state.get("upload_results"):
