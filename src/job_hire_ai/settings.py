@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="ATS_", env_file=ROOT / ".env", extra="ignore")
     data_dir: Path = ROOT / "data"
     max_file_mb: int = Field(default=10, ge=1, le=100)
+    database_url_override: str | None = None
 
     @property
     def directory(self) -> Path:
@@ -17,4 +18,6 @@ class Settings(BaseSettings):
 
     @property
     def database_url(self) -> str:
-        return "sqlite:///" + (self.directory / "ats.sqlite3").as_posix()
+        return self.database_url_override or (
+            "sqlite:///" + (self.directory / "ats.sqlite3").as_posix()
+        )
