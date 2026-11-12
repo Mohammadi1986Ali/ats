@@ -54,7 +54,10 @@ def _kpis(pulses):
     data = aggregate(pulses)
     for column, (label, value) in zip(st.columns(5), data.items(), strict=True):
         column.metric(label, value)
-    st.caption("Text complete counts only text extraction. AI matching, scoring and HR review are not yet running.")
+    st.caption(
+        "Text complete counts only text extraction. AI matching, scoring and HR review "
+        "are not yet running."
+    )
 
 
 @st.fragment(run_every="4s")
@@ -68,8 +71,13 @@ def dashboard_live(ats):
         st.info("No jobs yet. Create a vacancy in Job Management to begin.")
         return
     st.dataframe(_job_table(pulses), hide_index=True, width="stretch")
-    st.caption("Every row is a Job. CV totals are scoped to that Job; archived jobs remain visible.")
-    choice = st.selectbox("Inspect a Job", vacancies, format_func=_format_job, key="dashboard_job_select")
+    st.caption(
+        "Every row is a Job. CV totals are scoped to that Job; "
+        "archived jobs remain visible."
+    )
+    choice = st.selectbox(
+        "Inspect a Job", vacancies, format_func=_format_job, key="dashboard_job_select"
+    )
     selected = next(p for p in pulses if p.vacancy_id == choice.id)
     with st.container(border=True):
         st.markdown(f"**{choice.title}** · {selected.uploaded} CVs · {selected.state}")
