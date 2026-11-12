@@ -10,7 +10,9 @@ def test_upload_enqueues_text_and_future_stages(ats, vacancy, pdf):
     result = ats.documents.upload_batch(vacancy.id, [("cv.pdf", pdf)])
     assert len(result) == 1 and result[0].success
     with ats.db.transaction() as session:
-        stages = list(session.scalars(select(DocumentPipelineStage).order_by(DocumentPipelineStage.id)))
+        stages = list(
+            session.scalars(select(DocumentPipelineStage).order_by(DocumentPipelineStage.id))
+        )
     assert [stage.stage for stage in stages] == list(PIPELINE_STAGES)
     assert stages[0].status == "PENDING"
     assert all(stage.status == "WAITING" for stage in stages[1:])
@@ -19,7 +21,9 @@ def test_upload_enqueues_text_and_future_stages(ats, vacancy, pdf):
     assert ats.pipeline.process_next() is False
     with ats.db.transaction() as session:
         text = session.scalar(select(DocumentTextExtraction))
-        stages = list(session.scalars(select(DocumentPipelineStage).order_by(DocumentPipelineStage.id)))
+        stages = list(
+            session.scalars(select(DocumentPipelineStage).order_by(DocumentPipelineStage.id))
+        )
     assert text is not None
     assert "Java" in str(text.source)
     assert stages[0].status == "COMPLETED"
