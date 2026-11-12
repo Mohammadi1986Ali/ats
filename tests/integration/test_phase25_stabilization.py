@@ -10,7 +10,11 @@ from docx import Document
 from sqlalchemy import func, select
 
 from job_hire_ai.dashboard_view import aggregate, job_pulses, stage_breakdown
-from job_hire_ai.database.models import DocumentPipelineStage, DocumentTextExtraction
+from job_hire_ai.database.models import (
+    CandidateDocument,
+    DocumentPipelineStage,
+    DocumentTextExtraction,
+)
 from job_hire_ai.database.session import Database
 from job_hire_ai.schemas import VacancyInput
 from job_hire_ai.services.document_service import DocumentService
@@ -42,7 +46,8 @@ def test_100_plus_35_cvs_process_without_manual_analysis(ats, vacancy):
     assert all(x["TEXT_EXTRACTION"] == "PENDING" for x in rows)
     assert all(x[stage] == "WAITING" for x in rows for stage in PIPELINE_STAGES[1:])
     with ats.db.transaction() as session:
-        assert session.scalar(select(func.count(DocumentPipelineStage.id))) == 135 * len(PIPELINE_STAGES)
+        stage_count = session.scalar(select(func.count(DocumentPipelineStage.id)))
+        assert stage_count == 135 * len(PIPELINE_STAGES)
 
     # Simulates an independent worker processing the durable queue.
     processed = 0
@@ -69,7 +74,9 @@ def test_100_plus_35_cvs_process_without_manual_analysis(ats, vacancy):
     # Simulate Streamlit/worker restart using a fresh connection to the same DB.
     reopened_db = Database(ats.db.engine.url.render_as_string())
     try:
-        reopened = PipelineService(reopened_db, DocumentService(reopened_db, ats.storage), ats.pipeline.data_dir)
+        reopened = PipelineService(
+            reopened_db, DocumentService(reopened_db, ats.storage), ats.pipeline.data_dir
+        )
         _, persisted = reopened.overview()
         assert len(persisted) == 135
         assert Counter(x["TEXT_EXTRACTION"] for x in persisted) == {"COMPLETED": 135}
@@ -83,8 +90,6 @@ def test_failure_isolated_to_document_and_other_jobs_continue(ats, vacancy):
     assert ats.documents.upload_batch(vacancy.id, [_cv(1, "java")])[0].success
     assert ats.documents.upload_batch(second.id, [_cv(2, "analytics")])[0].success
     _, items = ats.pipeline.overview(vacancy.id)
-    from job_hire_ai.database.models import CandidateDocument
-
     with ats.db.transaction() as session:
         document = session.get(CandidateDocument, items[0]["CV"])
         ats.storage.delete(document.storage_key)
