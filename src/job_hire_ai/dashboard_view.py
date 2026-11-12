@@ -6,6 +6,7 @@ from typing import Any
 
 STAGES = (
     "TEXT_EXTRACTION",
+    "EMBEDDING",
     "PROFILE_EXTRACTION",
     "EVIDENCE_VALIDATION",
     "MATCHING",
@@ -14,6 +15,7 @@ STAGES = (
 )
 LABELS = {
     "TEXT_EXTRACTION": "Text extraction",
+    "EMBEDDING": "Text embedding",
     "PROFILE_EXTRACTION": "Profile extraction",
     "EVIDENCE_VALIDATION": "Evidence validation",
     "MATCHING": "Job matching",
