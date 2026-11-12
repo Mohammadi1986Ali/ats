@@ -1,0 +1,32 @@
+[
+  {
+    "title": "Senior Java Developer",
+    "description": "We require at least five years of Java experience, strong Spring Boot knowledge, and experience developing microservices. Kafka experience is preferred.",
+    "expected": [
+      {"name": "Java experience", "category": "Professional experience", "description": "At least five years of Java experience", "requirement_type": "REQUIRED", "source_excerpt": "at least five years of Java experience", "extraction_notes": "", "uncertainty": ""},
+      {"name": "Spring Boot", "category": "Technical skills", "description": "Strong knowledge of Spring Boot", "requirement_type": "REQUIRED", "source_excerpt": "strong Spring Boot knowledge", "extraction_notes": "", "uncertainty": ""},
+      {"name": "Microservices", "category": "Technical skills", "description": "Experience developing microservices", "requirement_type": "REQUIRED", "source_excerpt": "experience developing microservices", "extraction_notes": "", "uncertainty": ""},
+      {"name": "Kafka", "category": "Technical skills", "description": "Kafka experience", "requirement_type": "PREFERRED", "source_excerpt": "Kafka experience is preferred", "extraction_notes": "", "uncertainty": ""}
+    ]
+  },
+  {
+    "title": "Data Engineer",
+    "description": "Required: Python and SQL for data pipelines. Experience with Airflow is preferred. Familiarity with financial data may be useful.",
+    "expected": [
+      {"name": "Python", "category": "Technical skills", "description": "Use Python for data pipelines", "requirement_type": "REQUIRED", "source_excerpt": "Required: Python and SQL for data pipelines", "extraction_notes": "", "uncertainty": ""},
+      {"name": "SQL", "category": "Technical skills", "description": "Use SQL for data pipelines", "requirement_type": "REQUIRED", "source_excerpt": "Required: Python and SQL for data pipelines", "extraction_notes": "", "uncertainty": ""},
+      {"name": "Airflow", "category": "Technical skills", "description": "Experience with Airflow", "requirement_type": "PREFERRED", "source_excerpt": "Experience with Airflow is preferred", "extraction_notes": "", "uncertainty": ""},
+      {"name": "Financial data", "category": "Domain knowledge", "description": "Familiarity with financial data", "requirement_type": "UNCLEAR", "source_excerpt": "Familiarity with financial data may be useful", "extraction_notes": "Priority is not explicit", "uncertainty": "May be useful does not establish a mandatory qualification"}
+    ]
+  },
+  {
+    "title": "DevOps Engineer",
+    "description": "Linux administration and Terraform are required. Kubernetes experience is preferred. On-call availability is required. No degree requirement is specified.",
+    "expected": [
+      {"name": "Linux administration", "category": "Technical skills", "description": "Linux administration", "requirement_type": "REQUIRED", "source_excerpt": "Linux administration and Terraform are required", "extraction_notes": "", "uncertainty": ""},
+      {"name": "Terraform", "category": "Technical skills", "description": "Terraform experience", "requirement_type": "REQUIRED", "source_excerpt": "Linux administration and Terraform are required", "extraction_notes": "", "uncertainty": ""},
+      {"name": "Kubernetes", "category": "Technical skills", "description": "Kubernetes experience", "requirement_type": "PREFERRED", "source_excerpt": "Kubernetes experience is preferred", "extraction_notes": "", "uncertainty": ""},
+      {"name": "On-call availability", "category": "Availability", "description": "Available for on-call duties", "requirement_type": "REQUIRED", "source_excerpt": "On-call availability is required", "extraction_notes": "", "uncertainty": ""}
+    ]
+  }
+]
