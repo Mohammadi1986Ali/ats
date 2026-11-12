@@ -84,6 +84,11 @@ def migrate(source: Path, target_url: str, data_dir: Path, *, apply: bool = Fals
             ).scalar()
             if extension is None:
                 raise RuntimeError("Target PostgreSQL has not enabled pgvector")
+            # Refuse to silently omit any indexed vectors during SQLite -> PG copy.
+            if inspect(src).has_table("embedding_chunks"):
+                indexed = src.scalar(text("SELECT COUNT(*) FROM embedding_chunks"))
+                if indexed:
+                    raise RuntimeError("SQLite has embedding data; export it before migration")
             counts = {}
             for table in Base.metadata.sorted_tables:
                 src_count = src.scalar(select(func.count()).select_from(table))
