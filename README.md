@@ -219,3 +219,25 @@ Executed checks and their limits are recorded in [verification](docs/verificatio
 In this workspace uv was bootstrapped locally; if `uv` is not on your PATH, use
 `.\.tools\bin\uv.exe` in place of `uv`, or add that directory to your current
 PowerShell session's PATH. A fresh checkout requires installing uv as described above.
+
+
+## Automatic CV pipeline (Phase 1)
+
+Run `uv run alembic upgrade head` after updating the source. Start the ATS as usual
+with `uv run streamlit run app.py`. The app starts an **independent local Python
+worker** automatically after verifying database migrations. CV uploads create
+Application, Document, and durable per-document pipeline stages in one database
+transaction. The worker polls every two seconds, extracts text without Ollama,
+and stores it in the existing `document_text_extractions` table. A local OS file
+lock ensures only one text worker processes the queue; a restart recovers
+interrupted jobs, with bounded attempts. The Dashboard and Candidate Management
+pages show live text-stage status by vacancy and CV, refreshed every four seconds.
+
+The following downstream stages exist as explicit `WAITING` placeholders:
+Profile Extraction, Evidence Validation, Matching, Scoring and HR Review. They
+**are not executed by the Phase 1 worker**; no AI outputs or scores are faked.
+An unreadable scanned CV fails text extraction with an OCR-needed explanation.
+The worker continues when the browser tab closes. Logs are stored under the
+local data directory (`data/pipeline-worker.log`). Source documents, job records,
+and successful extraction results survive worker failure. The database remains
+SQLite in this phase; migration does not reset existing records.
