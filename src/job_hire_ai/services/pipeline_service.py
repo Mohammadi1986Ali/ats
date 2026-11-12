@@ -1,0 +1,239 @@
+"""Durable CV upload-to-text pipeline. No language model is invoked in Phase 1."""
+
+import hashlib
+import logging
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+from sqlalchemy import select, update
+
+from job_hire_ai.database.models import (
+    CandidateDocument,
+    DocumentPipelineStage,
+    DocumentTextExtraction,
+    JobApplication,
+    Vacancy,
+    now,
+)
+from job_hire_ai.errors import ATSError
+from job_hire_ai.text_extraction import EXTRACTOR_VERSION, TextExtractor
+
+logger = logging.getLogger(__name__)
+
+PIPELINE_STAGES = (
+    "TEXT_EXTRACTION",
+    "PROFILE_EXTRACTION",
+    "EVIDENCE_VALIDATION",
+    "MATCHING",
+    "SCORING",
+    "HR_REVIEW",
+)
+
+
+def enqueue_document(session, document_id: int) -> None:
+    """Called inside the upload transaction: no uploaded CV can miss its queue record."""
+    for stage in PIPELINE_STAGES:
+        session.add(
+            DocumentPipelineStage(
+                document_id=document_id,
+                stage=stage,
+                status="PENDING" if stage == "TEXT_EXTRACTION" else "WAITING",
+            )
+        )
+
+
+class PipelineService:
+    def __init__(self, db, documents, data_dir: Path):
+        self.db, self.documents = db, documents
+        self.data_dir = data_dir
+        self.extractor = TextExtractor(documents.validator)
+
+    def ensure_worker(self) -> None:
+        """Start a detached local worker; an OS lock allows only one active worker.
+
+        Invoked *after* Alembic migration validation. The worker keeps running
+        independently of a Streamlit session or browser tab.
+        """
+        log_path = self.data_dir / "pipeline-worker.log"
+        with log_path.open("ab") as log:
+            options = {}
+            if os.name == "nt":
+                options["creationflags"] = (
+                    subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+                )
+            else:
+                options["start_new_session"] = True
+            try:
+                subprocess.Popen(  # noqa: S603 - fixed module and interpreter; no shell
+                    [
+                        sys.executable,
+                        "-m",
+                        "job_hire_ai.workers.pipeline_worker",
+                        "--data-dir",
+                        str(self.data_dir),
+                    ],
+                    stdin=subprocess.DEVNULL,
+                    stdout=log,
+                    stderr=subprocess.STDOUT,
+                    close_fds=True,
+                    **options,
+                )
+            except OSError as exc:
+                logger.warning("Unable to start pipeline worker: %s", type(exc).__name__)
+                raise ATSError(
+                    "Automatic text processing worker could not start. "
+                    "Check data/pipeline-worker.log and restart the ATS."
+                ) from exc
+
+    def process_next(self) -> bool:
+        """Claim one pending text stage atomically; release DB while extracting."""
+        with self.db.transaction() as session:
+            stage_id = session.scalar(
+                select(DocumentPipelineStage.id)
+                .join(CandidateDocument, DocumentPipelineStage.document_id == CandidateDocument.id)
+                .join(JobApplication, CandidateDocument.application_id == JobApplication.id)
+                .where(
+                    DocumentPipelineStage.stage == "TEXT_EXTRACTION",
+                    DocumentPipelineStage.status == "PENDING",
+                    JobApplication.status == "Uploaded",
+                )
+                .order_by(DocumentPipelineStage.id)
+                .limit(1)
+            )
+            if stage_id is None:
+                return False
+            claimed = session.execute(
+                update(DocumentPipelineStage)
+                .where(
+                    DocumentPipelineStage.id == stage_id,
+                    DocumentPipelineStage.status == "PENDING",
+                )
+                .values(
+                    status="RUNNING",
+                    started_at=now(),
+                    completed_at=None,
+                    error_summary=None,
+                    attempts=DocumentPipelineStage.attempts + 1,
+                )
+            ).rowcount
+            if not claimed:
+                return True
+            document_id = session.get(DocumentPipelineStage, stage_id).document_id
+
+        started = time.perf_counter()
+        error = None
+        try:
+            filename, data, _ = self.documents.download(document_id)
+            checksum = hashlib.sha256(data).hexdigest()
+            with self.db.transaction() as session:
+                saved = session.scalar(
+                    select(DocumentTextExtraction.id).where(
+                        DocumentTextExtraction.document_id == document_id,
+                        DocumentTextExtraction.checksum == checksum,
+                        DocumentTextExtraction.extractor_version == EXTRACTOR_VERSION,
+                    )
+                )
+            if saved is None:
+                extracted = self.extractor.extract(filename, data)
+                if not extracted.segments:
+                    raise ATSError("No readable text found. Scanned PDFs require OCR.")
+                with self.db.transaction() as session:
+                    # A completed earlier analysis may have saved the same text concurrently.
+                    saved = session.scalar(
+                        select(DocumentTextExtraction.id).where(
+                            DocumentTextExtraction.document_id == document_id,
+                            DocumentTextExtraction.checksum == checksum,
+                            DocumentTextExtraction.extractor_version == EXTRACTOR_VERSION,
+                        )
+                    )
+                    if saved is None:
+                        session.add(
+                            DocumentTextExtraction(
+                                document_id=document_id,
+                                checksum=checksum,
+                                extractor_version=EXTRACTOR_VERSION,
+                                source=extracted.serialize(),
+                            )
+                        )
+        except (ATSError, OSError, ValueError) as exc:
+            error = str(exc)[:500]
+        except Exception:
+            logger.exception("Unexpected text-extraction failure for document %s", document_id)
+            error = "Unexpected document extraction failure. Inspect the worker log."
+
+        with self.db.transaction() as session:
+            stage = session.get(DocumentPipelineStage, stage_id)
+            if stage is None:
+                return True  # Application removed while work was in progress.
+            stage.status = "FAILED" if error else "COMPLETED"
+            stage.error_summary = error
+            stage.completed_at = now()
+            stage.duration_ms = round((time.perf_counter() - started) * 1000)
+        return True
+
+    def recover_interrupted(self, max_attempts: int = 3) -> None:
+        """Called after obtaining the exclusive worker lock, including after a crash."""
+        with self.db.transaction() as session:
+            for stage in session.scalars(
+                select(DocumentPipelineStage).where(
+                    DocumentPipelineStage.stage == "TEXT_EXTRACTION",
+                    DocumentPipelineStage.status == "RUNNING",
+                )
+            ):
+                if stage.attempts >= max_attempts:
+                    stage.status = "FAILED"
+                    stage.error_summary = "Interrupted repeatedly; manual review required."
+                    stage.completed_at = now()
+                else:
+                    stage.status = "PENDING"
+                    stage.error_summary = "Interrupted worker; automatically queued for recovery."
+
+    def overview(self, vacancy_id: int | None = None) -> tuple[list[dict], list[dict]]:
+        """Read-only live summary and per-document status for the dashboard."""
+        with self.db.transaction() as session:
+            statement = (
+                select(Vacancy, CandidateDocument, JobApplication, DocumentPipelineStage)
+                .join(JobApplication, JobApplication.vacancy_id == Vacancy.id)
+                .join(CandidateDocument, CandidateDocument.application_id == JobApplication.id)
+                .join(DocumentPipelineStage, DocumentPipelineStage.document_id == CandidateDocument.id)
+                .where(JobApplication.status == "Uploaded")
+            )
+            if vacancy_id is not None:
+                statement = statement.where(Vacancy.id == vacancy_id)
+            entries = session.execute(statement).all()
+            summary = {}
+            details = {}
+            for vacancy, document, application, stage in entries:
+                key = (vacancy.id, document.id)
+                if key not in details:
+                    details[key] = {
+                        "Job ID": vacancy.id,
+                        "Job": vacancy.title,
+                        "Application": application.id,
+                        "CV": document.id,
+                        "Filename": document.original_filename,
+                    }
+                details[key][stage.stage] = stage.status
+                details[key][f"{stage.stage}_error"] = stage.error_summary
+                if stage.stage == "TEXT_EXTRACTION":
+                    info = summary.setdefault(
+                        vacancy.id,
+                        {"Job ID": vacancy.id, "Job": vacancy.title, "Uploaded": 0,
+                         "Queued": 0, "Extracting": 0, "Text complete": 0, "Failed": 0},
+                    )
+                    info["Uploaded"] += 1
+                    column = {"PENDING": "Queued", "RUNNING": "Extracting",
+                              "COMPLETED": "Text complete", "FAILED": "Failed"}.get(stage.status)
+                    if column:
+                        info[column] += 1
+            result = []
+            for row in details.values():
+                row["Current stage"] = next(
+                    (label for label in PIPELINE_STAGES if row.get(label) in {"PENDING", "RUNNING", "FAILED"}),
+                    "Awaiting future pipeline stages" if row.get("TEXT_EXTRACTION") == "COMPLETED" else "Unknown",
+                )
+                result.append(row)
+            return list(summary.values()), result
