@@ -8,6 +8,7 @@ from job_hire_ai.database.repositories import Repository
 from job_hire_ai.documents import FileValidator
 from job_hire_ai.errors import ATSError
 from job_hire_ai.schemas import UploadResult
+from job_hire_ai.services.pipeline_service import enqueue_document
 
 logger = logging.getLogger(__name__)
 
@@ -78,18 +79,19 @@ class DocumentService:
                     session.add(application)
                     session.flush()
                 key = self.storage.save(data, extension)
-                session.add(
-                    CandidateDocument(
-                        application_id=application.id,
-                        vacancy_id=vacancy_id,
-                        original_filename=filename,
-                        storage_key=key,
-                        file_type=extension,
-                        file_size=len(data),
-                        checksum=checksum,
-                        text_extraction_status=text_status,
-                    )
+                document = CandidateDocument(
+                    application_id=application.id,
+                    vacancy_id=vacancy_id,
+                    original_filename=filename,
+                    storage_key=key,
+                    file_type=extension,
+                    file_size=len(data),
+                    checksum=checksum,
+                    text_extraction_status=text_status,
                 )
+                session.add(document)
+                session.flush()
+                enqueue_document(session, document.id)
                 session.flush()
                 application_id = application.id
             return application_id
