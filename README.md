@@ -241,3 +241,20 @@ The worker continues when the browser tab closes. Logs are stored under the
 local data directory (`data/pipeline-worker.log`). Source documents, job records,
 and successful extraction results survive worker failure. The database remains
 SQLite in this phase; migration does not reset existing records.
+
+
+## Job-first Dashboard and Pipeline Monitor (Phase 2)
+
+Open **Dashboard** for an overview of every job (including archived or empty jobs),
+with real CV counts, queued/running/failed text extractions and completion progress.
+Select a job and choose **Open this Job's CV pipeline**, or navigate directly to
+**Pipeline Monitor** from the sidebar. The monitor contains six stage counts, a
+filterable/searchable CV table and per-CV stage details (duration, attempts, error).
+The dashboard and monitor refresh every four seconds without manually refreshing
+the browser. Job-specific data is read from the existing persisted pipeline tables.
+
+**Important:** Only text extraction runs automatically in Phase 2. The remaining
+stages are displayed as *Not implemented / Not active yet*, not falsely counted as
+completed. A completed text extraction does not imply completed candidate analysis
+or hiring assessment. No new migration or model is required for this UI phase; the
+Phase 1 migration must already be applied.
