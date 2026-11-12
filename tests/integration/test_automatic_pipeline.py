@@ -100,7 +100,7 @@ def test_upload_100_cvs_creates_100_independent_queued_jobs(ats, vacancy):
     assert summary[0]["Queued"] == 100
     assert len(items) == 100
     with ats.db.transaction() as session:
-        assert session.scalar(select(func.count(DocumentPipelineStage.id))) == 600
+        assert session.scalar(select(func.count(DocumentPipelineStage.id))) == 100 * len(PIPELINE_STAGES)
     while ats.pipeline.process_next():
         pass
     summary, _ = ats.pipeline.overview(vacancy.id)
