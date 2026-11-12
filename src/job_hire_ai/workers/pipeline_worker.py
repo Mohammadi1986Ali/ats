@@ -1,0 +1,41 @@
+"""Independent local text processing worker, started by the Streamlit app."""
+
+import argparse
+import logging
+import time
+from pathlib import Path
+
+from job_hire_ai.database.session import Database
+from job_hire_ai.errors import ATSError
+from job_hire_ai.services.document_service import DocumentService
+from job_hire_ai.services.pipeline_service import PipelineService
+from job_hire_ai.settings import Settings
+from job_hire_ai.storage import LocalStorage
+from job_hire_ai.workers.local_lock import worker_lock
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data-dir", type=Path, required=True)
+    args = parser.parse_args()
+    logging.basicConfig(level=logging.INFO)
+    settings = Settings(data_dir=args.data_dir)
+    db = Database(settings.database_url)
+    storage = LocalStorage(settings.directory / "uploads", settings.max_file_mb * 1024**2)
+    service = PipelineService(db, DocumentService(db, storage), settings.directory)
+    try:
+        with worker_lock(settings.directory / "pipeline-text-worker.lock"):
+            service.recover_interrupted()
+            logging.info("Automatic CV text worker started")
+            while True:
+                if not service.process_next():
+                    time.sleep(2)
+    except ATSError as exc:
+        # Another healthy worker owns the lock; extra startup instances simply exit.
+        logging.info("CV text worker not started: %s", exc)
+    finally:
+        db.engine.dispose()
+
+
+if __name__ == "__main__":
+    main()
