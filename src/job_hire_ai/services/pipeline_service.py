@@ -9,6 +9,15 @@ import time
 from pathlib import Path
 
 from sqlalchemy import select, update
+from sqlalchemy.orm import aliased
+
+from job_hire_ai.services.embedding_service import (
+    EmbeddingService,
+    LocalEmbedder,
+    chunk_cv,
+    chunk_jd,
+    source_hash,
+)
 
 from job_hire_ai.database.models import (
     CandidateDocument,
@@ -19,12 +28,13 @@ from job_hire_ai.database.models import (
     now,
 )
 from job_hire_ai.errors import ATSError
-from job_hire_ai.text_extraction import EXTRACTOR_VERSION, TextExtractor
+from job_hire_ai.text_extraction import EXTRACTOR_VERSION, ExtractedText, TextExtractor
 
 logger = logging.getLogger(__name__)
 
 PIPELINE_STAGES = (
     "TEXT_EXTRACTION",
+    "EMBEDDING",
     "PROFILE_EXTRACTION",
     "EVIDENCE_VALIDATION",
     "MATCHING",
@@ -46,10 +56,20 @@ def enqueue_document(session, document_id: int) -> None:
 
 
 class PipelineService:
-    def __init__(self, db, documents, data_dir: Path):
+    def __init__(
+        self, db, documents, data_dir: Path, *, embeddings_enabled=False,
+        embedding_model="nomic-embed-text", embedding_base_url="http://127.0.0.1:11434",
+        embedder=None,
+    ):
         self.db, self.documents = db, documents
         self.data_dir = data_dir
         self.extractor = TextExtractor(documents.validator)
+        self.embeddings_enabled = embeddings_enabled
+        self.embedding_service = (
+            EmbeddingService(db, embedder or LocalEmbedder(embedding_base_url, embedding_model))
+            if embeddings_enabled else None
+        )
+        self._jd_failed_hashes = set()
 
     def ensure_worker(self) -> None:
         """Start a detached local worker; an OS lock allows only one active worker.
@@ -103,25 +123,26 @@ class PipelineService:
                 .order_by(DocumentPipelineStage.id)
                 .limit(1)
             )
-            if stage_id is None:
-                return False
-            claimed = session.execute(
-                update(DocumentPipelineStage)
-                .where(
-                    DocumentPipelineStage.id == stage_id,
-                    DocumentPipelineStage.status == "PENDING",
-                )
-                .values(
-                    status="RUNNING",
-                    started_at=now(),
-                    completed_at=None,
-                    error_summary=None,
-                    attempts=DocumentPipelineStage.attempts + 1,
-                )
-            ).rowcount
-            if not claimed:
-                return True
-            document_id = session.get(DocumentPipelineStage, stage_id).document_id
+            if stage_id is not None:
+                claimed = session.execute(
+                    update(DocumentPipelineStage)
+                    .where(
+                        DocumentPipelineStage.id == stage_id,
+                        DocumentPipelineStage.status == "PENDING",
+                    )
+                    .values(
+                        status="RUNNING",
+                        started_at=now(),
+                        completed_at=None,
+                        error_summary=None,
+                        attempts=DocumentPipelineStage.attempts + 1,
+                    )
+                ).rowcount
+                if not claimed:
+                    return True
+                document_id = session.get(DocumentPipelineStage, stage_id).document_id
+        if stage_id is None:
+            return self.process_embedding_next() if self.embeddings_enabled else False
 
         started = time.perf_counter()
         error = None
@@ -169,17 +190,139 @@ class PipelineService:
             if stage is None:
                 return True  # Application removed while work was in progress.
             stage.status = "FAILED" if error else "COMPLETED"
+            if not error and self.embeddings_enabled:
+                embedding = session.scalar(select(DocumentPipelineStage).where(
+                    DocumentPipelineStage.document_id == document_id,
+                    DocumentPipelineStage.stage == "EMBEDDING",
+                ))
+                if embedding is not None and embedding.status == "WAITING":
+                    embedding.status = "PENDING"
             stage.error_summary = error
             stage.completed_at = now()
             stage.duration_ms = round((time.perf_counter() - started) * 1000)
         return True
+
+    def process_embedding_next(self) -> bool:
+        """Process one pending CV embedding; then index an unprocessed JD."""
+        if not self.embeddings_enabled:
+            return False
+        with self.db.transaction() as session:
+            text_stage = aliased(DocumentPipelineStage)
+            stage_id = session.scalar(
+                select(DocumentPipelineStage.id)
+                .join(text_stage, text_stage.document_id == DocumentPipelineStage.document_id)
+                .join(CandidateDocument, CandidateDocument.id == DocumentPipelineStage.document_id)
+                .join(JobApplication, CandidateDocument.application_id == JobApplication.id)
+                .where(
+                    DocumentPipelineStage.stage == "EMBEDDING",
+                    DocumentPipelineStage.status.in_(["PENDING", "WAITING"]),
+                    text_stage.stage == "TEXT_EXTRACTION",
+                    text_stage.status == "COMPLETED",
+                    JobApplication.status == "Uploaded",
+                )
+                .order_by(DocumentPipelineStage.id).limit(1)
+            )
+            if stage_id is not None:
+                claimed = session.execute(
+                    update(DocumentPipelineStage)
+                    .where(
+                        DocumentPipelineStage.id == stage_id,
+                        DocumentPipelineStage.status.in_(["PENDING", "WAITING"]),
+                    )
+                    .values(
+                        status="RUNNING", started_at=now(), completed_at=None,
+                        error_summary=None, attempts=DocumentPipelineStage.attempts + 1,
+                    )
+                ).rowcount
+                if not claimed:
+                    return True
+                document_id = session.get(DocumentPipelineStage, stage_id).document_id
+        if stage_id is None:
+            return self._index_next_jd()
+        started = time.perf_counter()
+        error = None
+        try:
+            with self.db.transaction() as session:
+                document = session.get(CandidateDocument, document_id)
+                source = (
+                    session.scalar(
+                        select(DocumentTextExtraction)
+                        .where(
+                            DocumentTextExtraction.document_id == document_id,
+                            DocumentTextExtraction.checksum == document.checksum,
+                        )
+                        .order_by(DocumentTextExtraction.id.desc()).limit(1)
+                    )
+                    if document is not None else None
+                )
+                if source is None:
+                    raise ATSError("Text extraction missing; cannot embed this CV.")
+                vacancy_id = document.vacancy_id
+                fingerprint = source.checksum + ":" + source.extractor_version
+                extracted = ExtractedText.deserialize(source.source)
+            self.embedding_service.index(
+                source_type="CV", vacancy_id=vacancy_id, document_id=document_id,
+                source=fingerprint, chunks=chunk_cv(extracted),
+            )
+        except Exception as exc:
+            logger.warning(
+                "CV embedding failed for document %s: %s",
+                document_id, type(exc).__name__,
+            )
+            error = (
+                str(exc) if isinstance(exc, ATSError)
+                else "Unexpected embedding failure; inspect the worker log."
+            )[:500]
+        with self.db.transaction() as session:
+            stage = session.get(DocumentPipelineStage, stage_id)
+            if stage is not None:
+                stage.status = "FAILED" if error else "COMPLETED"
+                stage.error_summary = error
+                stage.completed_at = now()
+                stage.duration_ms = round((time.perf_counter() - started) * 1000)
+        return True
+
+    def _index_next_jd(self) -> bool:
+        """Refresh changed job descriptions without blocking CV processing."""
+        with self.db.transaction() as session:
+            jobs = [
+                (v.id, v.description)
+                for v in session.scalars(
+                    select(Vacancy).where(Vacancy.status == "Active").order_by(Vacancy.id)
+                )
+            ]
+        for vacancy_id, description in jobs:
+            key = (vacancy_id, source_hash(description))
+            if key in self._jd_failed_hashes:
+                continue
+            if self.embedding_service.current(
+                source_type="JD", vacancy_id=vacancy_id,
+                document_id=None, source=description,
+            ):
+                continue
+            try:
+                self.embedding_service.index(
+                    source_type="JD", vacancy_id=vacancy_id, document_id=None,
+                    source=description, chunks=chunk_jd(description),
+                )
+            except Exception as exc:
+                logger.warning(
+                    "JD embedding failed for vacancy %s: %s",
+                    vacancy_id, type(exc).__name__,
+                )
+                self._jd_failed_hashes.add(key)
+            return True
+        return False
 
     def recover_interrupted(self, max_attempts: int = 3) -> None:
         """Called after obtaining the exclusive worker lock, including after a crash."""
         with self.db.transaction() as session:
             for stage in session.scalars(
                 select(DocumentPipelineStage).where(
-                    DocumentPipelineStage.stage == "TEXT_EXTRACTION",
+                    DocumentPipelineStage.stage.in_(
+                        ["TEXT_EXTRACTION", "EMBEDDING"] if self.embeddings_enabled
+                        else ["TEXT_EXTRACTION"]
+                    ),
                     DocumentPipelineStage.status == "RUNNING",
                 )
             ):
