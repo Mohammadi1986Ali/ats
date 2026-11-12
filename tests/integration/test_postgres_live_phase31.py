@@ -11,6 +11,7 @@ from sqlalchemy import func, select, text
 
 from job_hire_ai.database.models import CandidateDocument, DocumentTextExtraction, Vacancy
 from job_hire_ai.database.session import Database
+from job_hire_ai.services.embedding_service import EmbeddingService, chunk_jd
 from job_hire_ai.runtime import Runtime
 from job_hire_ai.schemas import VacancyInput
 from job_hire_ai.settings import ROOT, Settings
@@ -58,6 +59,27 @@ def test_sqlite_data_copies_to_fresh_postgres_without_deleting_source(tmp_path):
             text("SELECT extname FROM pg_extension WHERE extname='vector'")
         )
         assert extension == "vector"
+    # Phase 3.2: exercise actual pgvector(768) writes and reads on PostgreSQL.
+    class FakeEmbedder:
+        model = "nomic-embed-text"
+
+        def embed(self, texts):
+            return [[0.25] * 768 for _ in texts]
+
+    postgres = Database(target_url)
+    try:
+        indexer = EmbeddingService(postgres, FakeEmbedder())
+        indexer.index(
+            source_type="JD", vacancy_id=1, document_id=None,
+            source="Java and SQL", chunks=chunk_jd("Java and SQL"),
+        )
+        with postgres.engine.connect() as connection:
+            dimensions = connection.scalar(
+                text("SELECT vector_dims(embedding) FROM embedding_chunks LIMIT 1")
+            )
+            assert dimensions == 768
+    finally:
+        postgres.engine.dispose()
     # Idempotency/safety: never import into a populated target.
     with pytest.raises(RuntimeError, match="not empty"):
         migrate(source, target_url, tmp_path, apply=True)
