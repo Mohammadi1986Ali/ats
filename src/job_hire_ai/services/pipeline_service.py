@@ -218,6 +218,9 @@ class PipelineService:
                     }
                 details[key][stage.stage] = stage.status
                 details[key][f"{stage.stage}_error"] = stage.error_summary
+                details[key][f"{stage.stage}_duration_ms"] = stage.duration_ms
+                details[key][f"{stage.stage}_attempts"] = stage.attempts
+                details[key][f"{stage.stage}_started_at"] = stage.started_at
                 if stage.stage == "TEXT_EXTRACTION":
                     info = summary.setdefault(
                         vacancy.id,
