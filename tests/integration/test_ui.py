@@ -42,7 +42,7 @@ def test_empty_dashboard_ui(ats):
     assert not app.exception
     assert len(app.metric) == 9
     assert all(metric.value == "0" for metric in app.metric)
-    assert any("No vacancies" in info.value for info in app.info)
+    assert any("No jobs yet" in info.value for info in app.info)
 
 
 def test_create_and_edit_vacancy_ui(ats):
