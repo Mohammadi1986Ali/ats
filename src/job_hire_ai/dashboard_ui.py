@@ -4,8 +4,8 @@ import pandas as pd
 import streamlit as st
 
 from job_hire_ai.dashboard_view import (
-    STAGES,
     LABELS,
+    STAGES,
     aggregate,
     current_stage,
     document_rows,
