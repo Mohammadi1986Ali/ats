@@ -22,7 +22,12 @@ def main() -> None:
     settings = Settings(data_dir=args.data_dir)
     db = Database(settings.database_url)
     storage = LocalStorage(settings.directory / "uploads", settings.max_file_mb * 1024**2)
-    service = PipelineService(db, DocumentService(db, storage), settings.directory)
+    service = PipelineService(
+        db, DocumentService(db, storage), settings.directory,
+        embeddings_enabled=settings.embeddings_enabled,
+        embedding_model=settings.embedding_model,
+        embedding_base_url=settings.embedding_base_url,
+    )
     try:
         with worker_lock(settings.directory / "pipeline-text-worker.lock"):
             service.recover_interrupted()
