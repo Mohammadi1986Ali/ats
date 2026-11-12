@@ -31,11 +31,17 @@ def dashboard(ats):
 def _pipeline_live(ats, vacancy_id=None):
     summary, items = ats.pipeline.overview(vacancy_id)
     st.subheader("Automatic CV pipeline — live")
-    st.caption("Upload starts text extraction automatically. Later AI, matching, scoring and HR stages are not active in Phase 1.")
+    st.caption(
+        "Upload starts text extraction automatically. Later AI, matching, scoring and "
+        "HR stages are not active in Phase 1."
+    )
     if summary:
         st.dataframe(pd.DataFrame(summary), hide_index=True, width="stretch")
         if items:
-            cols = ["Job", "Application", "CV", "Filename", "TEXT_EXTRACTION", "Current stage", "TEXT_EXTRACTION_error"]
+            cols = [
+                "Job", "Application", "CV", "Filename",
+                "TEXT_EXTRACTION", "Current stage", "TEXT_EXTRACTION_error",
+            ]
             st.dataframe(pd.DataFrame(items)[cols], hide_index=True, width="stretch")
     else:
         st.info("No CV pipeline jobs for this selection yet.")
@@ -269,7 +275,8 @@ def _applications(ats, vacancy):
                         "application/pdf"
                         if kind == "pdf"
                         else (
-                            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                            "application/vnd.openxmlformats-officedocument."
+                            "wordprocessingml.document"
                         )
                     )
                     st.download_button(
