@@ -22,7 +22,7 @@ LABELS = {
     "SCORING": "Scoring",
     "HR_REVIEW": "HR review",
 }
-PHASE1_DISABLED = set(STAGES[1:])
+FUTURE_STAGES = set(STAGES[2:])
 STATUS_TEXT = {
     "PENDING": "Queued",
     "RUNNING": "Running",
@@ -118,7 +118,11 @@ def stage_breakdown(items: list[dict]) -> list[dict]:
                 "Queued": statuses["PENDING"],
                 "Failed": statuses["FAILED"],
                 "Waiting": statuses["WAITING"],
-                "Availability": "Not implemented" if stage in PHASE1_DISABLED else "Active",
+                "Availability": (
+                    "Not implemented" if stage in FUTURE_STAGES
+                    else "Not enabled" if stage == "EMBEDDING" and
+                    statuses["WAITING"] == len(items) else "Active"
+                ),
             }
         )
     return rows
@@ -153,6 +157,7 @@ def document_rows(items: list[dict], query: str = "", status: str = "All") -> li
             "Current stage": stage,
             "Status": state,
             "Text": STAGE_ICONS.get(row.get("TEXT_EXTRACTION"), "?"),
+            "Embedding": STAGE_ICONS.get(row.get("EMBEDDING"), "?"),
             "Profile": STAGE_ICONS.get(row.get("PROFILE_EXTRACTION"), "?"),
             "Evidence": STAGE_ICONS.get(row.get("EVIDENCE_VALIDATION"), "?"),
             "Matching": STAGE_ICONS.get(row.get("MATCHING"), "?"),
@@ -163,7 +168,7 @@ def document_rows(items: list[dict], query: str = "", status: str = "All") -> li
                 if row.get("TEXT_EXTRACTION_duration_ms") is not None
                 else None
             ),
-            "Error": row.get("TEXT_EXTRACTION_error") or "",
+            "Error": row.get("TEXT_EXTRACTION_error") or row.get("EMBEDDING_error") or "",
         }
         output.append(result)
     return sorted(output, key=lambda r: (r["Status"] != "Failed", r["CV ID"]))
