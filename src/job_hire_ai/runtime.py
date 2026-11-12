@@ -9,6 +9,7 @@ from job_hire_ai.services.criteria_service import CriteriaService
 from job_hire_ai.services.cv_analysis_service import CVAnalysisService
 from job_hire_ai.services.dashboard_service import DashboardService
 from job_hire_ai.services.document_service import DocumentService
+from job_hire_ai.services.pipeline_service import PipelineService
 from job_hire_ai.services.vacancy_service import VacancyService
 from job_hire_ai.settings import Settings
 from job_hire_ai.storage import LocalStorage
@@ -23,6 +24,7 @@ class Runtime:
         self.candidates = CandidateService(self.db)
         self.applications = ApplicationService(self.db, self.storage)
         self.documents = DocumentService(self.db, self.storage)
+        self.pipeline = PipelineService(self.db, self.documents, settings.directory)
         self.dashboard = DashboardService(self.db)
         self.criteria = CriteriaService(self.db)
         self.ollama_settings = OllamaSettings()
