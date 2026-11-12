@@ -5,7 +5,6 @@ on:
   pull_request:
     branches: [main]
 
-# Avoid redundant runs and repeated failure emails during rapid commits.
 concurrency:
   group: ats-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -13,7 +12,19 @@ concurrency:
 jobs:
   quality:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.7-pg17
+        env:
+          POSTGRES_DB: job_hire_ai
+          POSTGRES_USER: ats
+          POSTGRES_PASSWORD: ci-test-password
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U ats -d job_hire_ai"
+          --health-interval 5s --health-timeout 3s --health-retries 12
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -25,5 +36,15 @@ jobs:
         run: uv sync --frozen --group dev --python 3.12
       - name: Lint
         run: uv run --python 3.12 ruff check .
-      - name: Run regression suite (no Ollama required)
+      - name: Run SQLite regression suite (no Ollama required)
         run: uv run --python 3.12 pytest -q -m 'not live_ollama'
+      - name: Install optional PostgreSQL driver
+        run: uv pip install --python .venv -r requirements-postgres.txt
+      - name: Apply Alembic schema to real PostgreSQL
+        env:
+          ATS_DATABASE_URL_OVERRIDE: postgresql+psycopg://ats:ci-test-password@127.0.0.1:5433/job_hire_ai
+        run: uv run --no-sync alembic upgrade head
+      - name: Verify SQLite to PostgreSQL copy
+        env:
+          ATS_TEST_POSTGRES_URL: postgresql+psycopg://ats:ci-test-password@127.0.0.1:5433/job_hire_ai
+        run: uv run --no-sync pytest -q tests/integration/test_postgres_live_phase31.py
