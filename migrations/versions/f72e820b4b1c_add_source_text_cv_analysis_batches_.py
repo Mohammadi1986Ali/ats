@@ -196,14 +196,29 @@ def upgrade():
             batch_op.f("ix_profile_review_events_profile_id"), ["profile_id"], unique=False
         )
 
+    if op.get_bind().dialect.name == "postgresql":
+        op.execute("""
+            CREATE FUNCTION ats_protect_extraction_history() RETURNS trigger
+            LANGUAGE plpgsql AS $$
+            BEGIN
+                RAISE EXCEPTION 'Extraction history is immutable';
+            END;
+            $$
+        """)
     for table in (
         "candidate_profiles",
         "document_text_extractions",
         "evidence_references",
         "profile_review_events",
     ):
-        op.execute(f"""CREATE TRIGGER immutable_{table}_update BEFORE UPDATE ON {table}
-            BEGIN SELECT RAISE(ABORT, 'Extraction history is immutable'); END""")
+        if op.get_bind().dialect.name == "postgresql":
+            op.execute(
+                f"CREATE TRIGGER immutable_{table}_update BEFORE UPDATE ON {table} "
+                "FOR EACH ROW EXECUTE FUNCTION ats_protect_extraction_history()"
+            )
+        else:
+            op.execute(f"""CREATE TRIGGER immutable_{table}_update BEFORE UPDATE ON {table}
+                BEGIN SELECT RAISE(ABORT, 'Extraction history is immutable'); END""")
 
 
 def downgrade():
@@ -213,7 +228,12 @@ def downgrade():
         "evidence_references",
         "profile_review_events",
     ):
-        op.execute(f"DROP TRIGGER immutable_{table}_update")
+        if op.get_bind().dialect.name == "postgresql":
+            op.execute(f"DROP TRIGGER immutable_{table}_update ON {table}")
+        else:
+            op.execute(f"DROP TRIGGER immutable_{table}_update")
+    if op.get_bind().dialect.name == "postgresql":
+        op.execute("DROP FUNCTION ats_protect_extraction_history()")
     with op.batch_alter_table("profile_review_events", schema=None) as batch_op:
         batch_op.drop_index(batch_op.f("ix_profile_review_events_profile_id"))
 
