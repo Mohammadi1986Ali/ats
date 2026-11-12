@@ -335,3 +335,29 @@ class ProfileReviewEvent(Base):
     note: Mapped[str]
     created_at: Mapped[datetime] = mapped_column(default=now)
     profile: Mapped[CandidateProfile] = relationship(back_populates="reviews")
+
+
+class DocumentPipelineStage(Base):
+    """Durable, application-specific stage state; one stage per uploaded document."""
+
+    __tablename__ = "document_pipeline_stages"
+    __table_args__ = (
+        UniqueConstraint("document_id", "stage", name="uq_document_pipeline_stage"),
+        CheckConstraint(
+            "status IN ('PENDING', 'RUNNING', 'COMPLETED', 'FAILED', 'WAITING')",
+            name="ck_document_pipeline_stage_status",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    document_id: Mapped[int] = mapped_column(
+        ForeignKey("candidate_documents.id", ondelete="CASCADE"), index=True
+    )
+    stage: Mapped[str] = mapped_column(String(40))
+    status: Mapped[str] = mapped_column(String(20), index=True)
+    attempts: Mapped[int] = mapped_column(default=0)
+    started_at: Mapped[datetime | None]
+    completed_at: Mapped[datetime | None]
+    duration_ms: Mapped[int | None]
+    error_summary: Mapped[str | None] = mapped_column(String(500))
+    updated_at: Mapped[datetime] = mapped_column(default=now, onupdate=now)
