@@ -3,14 +3,14 @@ from datetime import UTC, datetime
 from sqlalchemy import (
     JSON,
     BigInteger,
-    Integer,
-    Text,
     Boolean,
     CheckConstraint,
     ForeignKey,
     ForeignKeyConstraint,
     Index,
+    Integer,
     String,
+    Text,
     UniqueConstraint,
     text,
 )
