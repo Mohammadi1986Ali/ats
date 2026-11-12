@@ -121,7 +121,8 @@ class EmbeddingService:
                     text("""
                         SELECT 1 FROM embedding_chunks
                         WHERE source_type=:kind AND vacancy_id=:vacancy
-                          AND ((CAST(:doc AS INTEGER) IS NULL AND document_id IS NULL) OR document_id=:doc)
+                          AND ((CAST(:doc AS INTEGER) IS NULL AND document_id IS NULL)
+                              OR document_id=:doc)
                           AND source_hash=:hash AND model=:model
                           AND chunker_version=:version LIMIT 1
                     """),
@@ -151,7 +152,8 @@ class EmbeddingService:
                 text("""
                     SELECT COUNT(*) FROM embedding_chunks
                     WHERE source_type=:kind AND vacancy_id=:vacancy
-                      AND ((CAST(:doc AS INTEGER) IS NULL AND document_id IS NULL) OR document_id=:doc)
+                      AND ((CAST(:doc AS INTEGER) IS NULL AND document_id IS NULL)
+                              OR document_id=:doc)
                       AND source_hash=:hash AND model=:model AND chunker_version=:version
                 """),
                 keys,
@@ -168,7 +170,8 @@ class EmbeddingService:
                 text("""
                     DELETE FROM embedding_chunks
                     WHERE source_type=:kind AND vacancy_id=:vacancy
-                      AND ((CAST(:doc AS INTEGER) IS NULL AND document_id IS NULL) OR document_id=:doc)
+                      AND ((CAST(:doc AS INTEGER) IS NULL AND document_id IS NULL)
+                              OR document_id=:doc)
                 """),
                 keys,
             )
