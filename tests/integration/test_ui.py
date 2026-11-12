@@ -40,7 +40,7 @@ ats = Runtime(Settings(data_dir=Path({str(ats.storage.directory.parent)!r})))
 def test_empty_dashboard_ui(ats):
     app = page(ats, "dashboard")
     assert not app.exception
-    assert len(app.metric) == 15
+    assert len(app.metric) == 9
     assert all(metric.value == "0" for metric in app.metric)
     assert any("No vacancies" in info.value for info in app.info)
 
