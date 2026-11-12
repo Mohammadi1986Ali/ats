@@ -34,6 +34,13 @@ except SQLAlchemyError:
     st.error("The local database could not be opened. Check your data directory permissions.")
     st.stop()
 
+if not st.session_state.get("pipeline_worker_started"):
+    try:
+        ats.pipeline.ensure_worker()
+        st.session_state.pipeline_worker_started = True
+    except ATSError as exc:
+        st.warning(str(exc))
+
 st.sidebar.title("Job Hire AI")
 st.sidebar.caption("Applicant tracking · Job and CV analysis")
 page = st.sidebar.radio(
