@@ -26,6 +26,7 @@ def _cv(job, n, status="PENDING", error=None):
         "TEXT_EXTRACTION_duration_ms": 1200 if status == "COMPLETED" else None,
         "TEXT_EXTRACTION_attempts": 1 if status != "PENDING" else 0,
         "TEXT_EXTRACTION_error": error,
+        "EMBEDDING": "WAITING",
         "PROFILE_EXTRACTION": "WAITING",
         "EVIDENCE_VALIDATION": "WAITING",
         "MATCHING": "WAITING",
@@ -55,13 +56,15 @@ def test_stage_breakdown_marks_future_stages_inactive():
     assert stages[0]["Completed"] == 1
     assert stages[0]["Failed"] == 1
     assert stages[0]["Availability"] == "Active"
+    assert stages[1]["Waiting"] == 2
+    assert stages[1]["Availability"] == "Not enabled"
     assert all(row["Waiting"] == 2 and row["Availability"] == "Not implemented"
-               for row in stages[1:])
+               for row in stages[2:])
 
 
 def test_document_filter_and_failure_log_show_real_stage():
     cvs = [_cv(1, 1, "COMPLETED"), _cv(1, 2, "FAILED", "Corrupt PDF")]
-    assert current_stage(cvs[0]) == ("Profile extraction", "Not active yet")
+    assert current_stage(cvs[0]) == ("Text embedding", "Not active yet")
     rows = document_rows(cvs, "candidate_2", "Failed")
     assert len(rows) == 1 and rows[0]["CV ID"] == 2
     assert document_rows(cvs, "candidate_1", "Failed") == []
