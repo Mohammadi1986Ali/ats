@@ -5,6 +5,11 @@ on:
   pull_request:
     branches: [main]
 
+# Avoid redundant runs and repeated failure emails during rapid commits.
+concurrency:
+  group: ats-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   quality:
     runs-on: ubuntu-latest
