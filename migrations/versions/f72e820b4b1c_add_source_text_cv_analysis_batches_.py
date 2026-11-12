@@ -15,11 +15,16 @@ def upgrade():
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("vacancy_id", sa.Integer(), nullable=False),
         sa.Column("created_at", sa.DateTime(), nullable=False),
-        sa.ForeignKeyConstraint(["vacancy_id"], ["vacancies.id"]),
+        sa.ForeignKeyConstraint(
+            ["vacancy_id"],
+            ["vacancies.id"],
+        ),
         sa.PrimaryKeyConstraint("id"),
     )
-    with op.batch_alter_table("cv_analysis_batches", schema=None) as b:
-        b.create_index(b.f("ix_cv_analysis_batches_vacancy_id"), ["vacancy_id"], unique=False)
+    with op.batch_alter_table("cv_analysis_batches", schema=None) as batch_op:
+        batch_op.create_index(
+            batch_op.f("ix_cv_analysis_batches_vacancy_id"), ["vacancy_id"], unique=False
+        )
 
     op.create_table(
         "cv_analysis_jobs",
@@ -40,15 +45,22 @@ def upgrade():
             "status IN ('PENDING', 'EXTRACTING', 'ANALYZING', 'VALIDATING', "
             "'COMPLETED', 'FAILED', 'NEEDS_REVIEW')"
         ),
-        sa.ForeignKeyConstraint(["batch_id"], ["cv_analysis_batches.id"]),
+        sa.ForeignKeyConstraint(
+            ["batch_id"],
+            ["cv_analysis_batches.id"],
+        ),
         sa.ForeignKeyConstraint(["document_id"], ["candidate_documents.id"], ondelete="SET NULL"),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("batch_id", "document_id"),
     )
-    with op.batch_alter_table("cv_analysis_jobs", schema=None) as b:
-        b.create_index(b.f("ix_cv_analysis_jobs_batch_id"), ["batch_id"], unique=False)
-        b.create_index(b.f("ix_cv_analysis_jobs_document_id"), ["document_id"], unique=False)
-        b.create_index(b.f("ix_cv_analysis_jobs_status"), ["status"], unique=False)
+    with op.batch_alter_table("cv_analysis_jobs", schema=None) as batch_op:
+        batch_op.create_index(
+            batch_op.f("ix_cv_analysis_jobs_batch_id"), ["batch_id"], unique=False
+        )
+        batch_op.create_index(
+            batch_op.f("ix_cv_analysis_jobs_document_id"), ["document_id"], unique=False
+        )
+        batch_op.create_index(batch_op.f("ix_cv_analysis_jobs_status"), ["status"], unique=False)
 
     op.create_table(
         "document_text_extractions",
@@ -62,8 +74,10 @@ def upgrade():
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("document_id", "checksum", "extractor_version"),
     )
-    with op.batch_alter_table("document_text_extractions", schema=None) as b:
-        b.create_index(b.f("ix_document_text_extractions_document_id"), ["document_id"], unique=False)
+    with op.batch_alter_table("document_text_extractions", schema=None) as batch_op:
+        batch_op.create_index(
+            batch_op.f("ix_document_text_extractions_document_id"), ["document_id"], unique=False
+        )
 
     op.create_table(
         "cv_analysis_runs",
@@ -85,12 +99,17 @@ def upgrade():
         sa.Column("chunks_completed", sa.Integer(), nullable=False),
         sa.Column("error_summary", sa.String(length=500), nullable=True),
         sa.ForeignKeyConstraint(["document_id"], ["candidate_documents.id"], ondelete="SET NULL"),
-        sa.ForeignKeyConstraint(["job_id"], ["cv_analysis_jobs.id"]),
+        sa.ForeignKeyConstraint(
+            ["job_id"],
+            ["cv_analysis_jobs.id"],
+        ),
         sa.PrimaryKeyConstraint("id"),
     )
-    with op.batch_alter_table("cv_analysis_runs", schema=None) as b:
-        b.create_index(b.f("ix_cv_analysis_runs_document_id"), ["document_id"], unique=False)
-        b.create_index(b.f("ix_cv_analysis_runs_job_id"), ["job_id"], unique=False)
+    with op.batch_alter_table("cv_analysis_runs", schema=None) as batch_op:
+        batch_op.create_index(
+            batch_op.f("ix_cv_analysis_runs_document_id"), ["document_id"], unique=False
+        )
+        batch_op.create_index(batch_op.f("ix_cv_analysis_runs_job_id"), ["job_id"], unique=False)
 
     op.create_table(
         "candidate_profiles",
@@ -107,18 +126,32 @@ def upgrade():
         sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.CheckConstraint("analysis_status IN ('COMPLETED', 'NEEDS_REVIEW')"),
         sa.CheckConstraint("extraction_version > 0"),
-        sa.ForeignKeyConstraint(["analysis_run_id"], ["cv_analysis_runs.id"]),
-        sa.ForeignKeyConstraint(["candidate_id"], ["candidates.id"]),
+        sa.ForeignKeyConstraint(
+            ["analysis_run_id"],
+            ["cv_analysis_runs.id"],
+        ),
+        sa.ForeignKeyConstraint(
+            ["candidate_id"],
+            ["candidates.id"],
+        ),
         sa.ForeignKeyConstraint(["document_id"], ["candidate_documents.id"], ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(["text_extraction_id"], ["document_text_extractions.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(
+            ["text_extraction_id"], ["document_text_extractions.id"], ondelete="CASCADE"
+        ),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("analysis_run_id"),
         sa.UniqueConstraint("document_id", "extraction_version"),
     )
-    with op.batch_alter_table("candidate_profiles", schema=None) as b:
-        b.create_index(b.f("ix_candidate_profiles_candidate_id"), ["candidate_id"], unique=False)
-        b.create_index(b.f("ix_candidate_profiles_config_hash"), ["config_hash"], unique=False)
-        b.create_index(b.f("ix_candidate_profiles_document_id"), ["document_id"], unique=False)
+    with op.batch_alter_table("candidate_profiles", schema=None) as batch_op:
+        batch_op.create_index(
+            batch_op.f("ix_candidate_profiles_candidate_id"), ["candidate_id"], unique=False
+        )
+        batch_op.create_index(
+            batch_op.f("ix_candidate_profiles_config_hash"), ["config_hash"], unique=False
+        )
+        batch_op.create_index(
+            batch_op.f("ix_candidate_profiles_document_id"), ["document_id"], unique=False
+        )
 
     op.create_table(
         "evidence_references",
@@ -137,9 +170,13 @@ def upgrade():
         sa.ForeignKeyConstraint(["profile_id"], ["candidate_profiles.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
     )
-    with op.batch_alter_table("evidence_references", schema=None) as b:
-        b.create_index(b.f("ix_evidence_references_document_id"), ["document_id"], unique=False)
-        b.create_index(b.f("ix_evidence_references_profile_id"), ["profile_id"], unique=False)
+    with op.batch_alter_table("evidence_references", schema=None) as batch_op:
+        batch_op.create_index(
+            batch_op.f("ix_evidence_references_document_id"), ["document_id"], unique=False
+        )
+        batch_op.create_index(
+            batch_op.f("ix_evidence_references_profile_id"), ["profile_id"], unique=False
+        )
 
     op.create_table(
         "profile_review_events",
@@ -154,12 +191,16 @@ def upgrade():
         sa.ForeignKeyConstraint(["profile_id"], ["candidate_profiles.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
     )
-    with op.batch_alter_table("profile_review_events", schema=None) as b:
-        b.create_index(b.f("ix_profile_review_events_profile_id"), ["profile_id"], unique=False)
+    with op.batch_alter_table("profile_review_events", schema=None) as batch_op:
+        batch_op.create_index(
+            batch_op.f("ix_profile_review_events_profile_id"), ["profile_id"], unique=False
+        )
 
     for table in (
-        "candidate_profiles", "document_text_extractions",
-        "evidence_references", "profile_review_events",
+        "candidate_profiles",
+        "document_text_extractions",
+        "evidence_references",
+        "profile_review_events",
     ):
         op.execute(f"""CREATE TRIGGER immutable_{table}_update BEFORE UPDATE ON {table}
             BEGIN SELECT RAISE(ABORT, 'Extraction history is immutable'); END""")
@@ -167,20 +208,43 @@ def upgrade():
 
 def downgrade():
     for table in (
-        "candidate_profiles", "document_text_extractions",
-        "evidence_references", "profile_review_events",
+        "candidate_profiles",
+        "document_text_extractions",
+        "evidence_references",
+        "profile_review_events",
     ):
         op.execute(f"DROP TRIGGER immutable_{table}_update")
-    for table, indexes in (
-        ("profile_review_events", ["ix_profile_review_events_profile_id"]),
-        ("evidence_references", ["ix_evidence_references_profile_id", "ix_evidence_references_document_id"]),
-        ("candidate_profiles", ["ix_candidate_profiles_document_id", "ix_candidate_profiles_config_hash", "ix_candidate_profiles_candidate_id"]),
-        ("cv_analysis_runs", ["ix_cv_analysis_runs_job_id", "ix_cv_analysis_runs_document_id"]),
-        ("document_text_extractions", ["ix_document_text_extractions_document_id"]),
-        ("cv_analysis_jobs", ["ix_cv_analysis_jobs_status", "ix_cv_analysis_jobs_document_id", "ix_cv_analysis_jobs_batch_id"]),
-        ("cv_analysis_batches", ["ix_cv_analysis_batches_vacancy_id"]),
-    ):
-        with op.batch_alter_table(table, schema=None) as b:
-            for index in indexes:
-                b.drop_index(index)
-        op.drop_table(table)
+    with op.batch_alter_table("profile_review_events", schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f("ix_profile_review_events_profile_id"))
+
+    op.drop_table("profile_review_events")
+    with op.batch_alter_table("evidence_references", schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f("ix_evidence_references_profile_id"))
+        batch_op.drop_index(batch_op.f("ix_evidence_references_document_id"))
+
+    op.drop_table("evidence_references")
+    with op.batch_alter_table("candidate_profiles", schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f("ix_candidate_profiles_document_id"))
+        batch_op.drop_index(batch_op.f("ix_candidate_profiles_config_hash"))
+        batch_op.drop_index(batch_op.f("ix_candidate_profiles_candidate_id"))
+
+    op.drop_table("candidate_profiles")
+    with op.batch_alter_table("cv_analysis_runs", schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f("ix_cv_analysis_runs_job_id"))
+        batch_op.drop_index(batch_op.f("ix_cv_analysis_runs_document_id"))
+
+    op.drop_table("cv_analysis_runs")
+    with op.batch_alter_table("document_text_extractions", schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f("ix_document_text_extractions_document_id"))
+
+    op.drop_table("document_text_extractions")
+    with op.batch_alter_table("cv_analysis_jobs", schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f("ix_cv_analysis_jobs_status"))
+        batch_op.drop_index(batch_op.f("ix_cv_analysis_jobs_document_id"))
+        batch_op.drop_index(batch_op.f("ix_cv_analysis_jobs_batch_id"))
+
+    op.drop_table("cv_analysis_jobs")
+    with op.batch_alter_table("cv_analysis_batches", schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f("ix_cv_analysis_batches_vacancy_id"))
+
+    op.drop_table("cv_analysis_batches")
