@@ -8,6 +8,7 @@ from alembic.script import ScriptDirectory
 from sqlalchemy.exc import SQLAlchemyError
 
 from job_hire_ai.cv_ui import cv_analysis_page
+from job_hire_ai.dashboard_ui import pipeline_monitor
 from job_hire_ai.errors import ATSError
 from job_hire_ai.runtime import Runtime
 from job_hire_ai.settings import ROOT, Settings
@@ -45,7 +46,7 @@ st.sidebar.title("Job Hire AI")
 st.sidebar.caption("Applicant tracking · Job and CV analysis")
 page = st.sidebar.radio(
     "Navigation",
-    ["Dashboard", "Job Management", "Candidate Management", "CV Analysis"],
+    ["Dashboard", "Pipeline Monitor", "Job Management", "Candidate Management", "CV Analysis"],
     key="navigation",
 )
 st.sidebar.caption("Local prototype · no authentication. Use on a trusted computer.")
@@ -54,6 +55,7 @@ if message := st.session_state.pop("notice", None):
 try:
     {
         "Dashboard": dashboard,
+        "Pipeline Monitor": pipeline_monitor,
         "Job Management": jobs,
         "Candidate Management": candidates,
         "CV Analysis": cv_analysis_page,
