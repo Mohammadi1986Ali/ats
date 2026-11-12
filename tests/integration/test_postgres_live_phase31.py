@@ -11,9 +11,9 @@ from sqlalchemy import func, select, text
 
 from job_hire_ai.database.models import CandidateDocument, DocumentTextExtraction, Vacancy
 from job_hire_ai.database.session import Database
-from job_hire_ai.services.embedding_service import EmbeddingService, chunk_jd
 from job_hire_ai.runtime import Runtime
 from job_hire_ai.schemas import VacancyInput
+from job_hire_ai.services.embedding_service import EmbeddingService, chunk_jd
 from job_hire_ai.settings import ROOT, Settings
 from scripts.migrate_sqlite_to_postgres import migrate
 
