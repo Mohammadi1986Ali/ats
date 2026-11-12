@@ -80,9 +80,8 @@ class PipelineService:
         with log_path.open("ab") as log:
             options = {}
             if os.name == "nt":
-                options["creationflags"] = (
-                    subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
-                )
+                # Run the worker without opening a visible Python console window.
+                options["creationflags"] = subprocess.CREATE_NO_WINDOW
             else:
                 options["start_new_session"] = True
             try:
