@@ -2,6 +2,9 @@ from datetime import UTC, datetime
 
 from sqlalchemy import (
     JSON,
+    BigInteger,
+    Integer,
+    Text,
     Boolean,
     CheckConstraint,
     ForeignKey,
@@ -12,6 +15,7 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.types import UserDefinedType
 
 
 def now() -> datetime:
@@ -366,3 +370,46 @@ class DocumentPipelineStage(Base):
     duration_ms: Mapped[int | None]
     error_summary: Mapped[str | None] = mapped_column(String(500))
     updated_at: Mapped[datetime] = mapped_column(default=now, onupdate=now)
+
+
+class Vector768Type(UserDefinedType):
+    """PostgreSQL pgvector storage; SQLite uses text in offline tests."""
+
+    cache_ok = True
+
+    def get_col_spec(self, **_):
+        return "vector(768)"
+
+
+class EmbeddingChunk(Base):
+    """Source-addressable embeddings; not a hiring decision or score."""
+
+    __tablename__ = "embedding_chunks"
+    __table_args__ = (
+        UniqueConstraint(
+            "source_type", "vacancy_id", "document_id", "source_hash",
+            "model", "chunker_version", "chunk_index", name="uq_embedding_chunk",
+        ),
+        CheckConstraint(
+            "(source_type = 'CV' AND document_id IS NOT NULL) OR "
+            "(source_type = 'JD' AND document_id IS NULL)",
+            name="ck_embedding_source",
+        ),
+    )
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"), primary_key=True
+    )
+    source_type: Mapped[str] = mapped_column(String(8))
+    document_id: Mapped[int | None] = mapped_column(
+        ForeignKey("candidate_documents.id", ondelete="CASCADE"), index=True
+    )
+    vacancy_id: Mapped[int] = mapped_column(
+        ForeignKey("vacancies.id", ondelete="CASCADE"), index=True
+    )
+    source_hash: Mapped[str] = mapped_column(String(64))
+    model: Mapped[str] = mapped_column(String(200))
+    chunker_version: Mapped[str] = mapped_column(String(40))
+    chunk_index: Mapped[int]
+    reference: Mapped[str] = mapped_column(String(200))
+    chunk_text: Mapped[str] = mapped_column(Text)
+    embedding: Mapped[str] = mapped_column(Vector768Type().with_variant(Text(), "sqlite"))
