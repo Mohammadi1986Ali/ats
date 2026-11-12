@@ -1,5 +1,5 @@
 from alembic import context
-from sqlalchemy import create_engine, event, pool
+from job_hire_ai.database.session import build_engine
 
 from job_hire_ai.database.models import Base
 from job_hire_ai.settings import Settings
@@ -14,15 +14,13 @@ if context.is_offline_mode():
     with context.begin_transaction():
         context.run_migrations()
 else:
-    engine = create_engine(url, poolclass=pool.NullPool)
-
-    @event.listens_for(engine, "connect")
-    def foreign_keys(connection, _):
-        connection.execute("PRAGMA foreign_keys=ON")
+    engine = build_engine(url)
 
     with engine.connect() as connection:
         context.configure(
-            connection=connection, target_metadata=Base.metadata, render_as_batch=True
+            connection=connection,
+            target_metadata=Base.metadata,
+            render_as_batch=connection.dialect.name == "sqlite",
         )
         with context.begin_transaction():
             context.run_migrations()
