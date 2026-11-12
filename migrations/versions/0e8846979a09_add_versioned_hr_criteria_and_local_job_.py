@@ -72,12 +72,14 @@ def upgrade():
             ["vacancy_id"],
             unique=True,
             sqlite_where=sa.text("status = 'APPROVED'"),
+            postgresql_where=sa.text("status = 'APPROVED'"),
         )
         batch_op.create_index(
             "uq_current_draft",
             ["vacancy_id"],
             unique=True,
             sqlite_where=sa.text("status = 'DRAFT'"),
+            postgresql_where=sa.text("status = 'DRAFT'"),
         )
 
     op.create_table(
@@ -103,7 +105,9 @@ def upgrade():
         sa.CheckConstraint("evidence_status IN ('VERIFIED', 'UNVERIFIED')"),
         sa.CheckConstraint("requirement_type IN ('REQUIRED', 'PREFERRED', 'UNCLEAR')"),
         sa.CheckConstraint(
-            "weight IS NULL OR (typeof(weight) = 'integer' AND weight BETWEEN 0 AND 100)"
+            "weight IS NULL OR "
+            + ("typeof(weight) = 'integer' AND " if op.get_bind().dialect.name == "sqlite" else "")
+            + "weight BETWEEN 0 AND 100"
         ),
         sa.CheckConstraint("display_order BETWEEN 1 AND 50"),
         sa.CheckConstraint("length(trim(name)) > 0 AND length(trim(description)) > 0"),
@@ -118,6 +122,11 @@ def upgrade():
         batch_op.create_index(
             batch_op.f("ix_job_criteria_configuration_id"), ["configuration_id"], unique=False
         )
+
+    # Keep the original SQLite triggers; PostgreSQL uses native PL/pgSQL triggers.
+    if op.get_bind().dialect.name == "postgresql":
+        _install_postgresql_triggers()
+        return
 
     # Enforce historical immutability even for direct SQL/ORM writes.
     for operation in ("INSERT", "UPDATE", "DELETE"):
@@ -161,16 +170,101 @@ def upgrade():
         ) BEGIN SELECT RAISE(ABORT, 'Invalid approval configuration'); END""")
 
 
+def _install_postgresql_triggers():
+    op.execute("""
+        CREATE FUNCTION ats_protect_criterion() RETURNS trigger LANGUAGE plpgsql AS $$
+        DECLARE
+            configuration_key integer;
+        BEGIN
+            configuration_key := CASE WHEN TG_OP = 'DELETE' THEN OLD.configuration_id
+                                       ELSE NEW.configuration_id END;
+            IF EXISTS (
+                SELECT 1 FROM criteria_configurations
+                WHERE id = configuration_key AND status != 'DRAFT'
+            ) THEN
+                RAISE EXCEPTION 'Approved criteria are immutable';
+            END IF;
+            IF TG_OP = 'DELETE' THEN
+                RETURN OLD;
+            END IF;
+            RETURN NEW;
+        END;
+        $$
+    """)
+    for operation in ("INSERT", "UPDATE", "DELETE"):
+        op.execute(
+            f"CREATE TRIGGER immutable_criterion_{operation.lower()} "
+            f"BEFORE {operation} ON job_criteria "
+            "FOR EACH ROW EXECUTE FUNCTION ats_protect_criterion()"
+        )
+    op.execute("""
+        CREATE FUNCTION ats_protect_configuration() RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN
+            IF TG_OP = 'DELETE' THEN
+                IF OLD.status != 'DRAFT' THEN
+                    RAISE EXCEPTION 'Approved configurations are immutable';
+                END IF;
+                RETURN OLD;
+            END IF;
+            IF OLD.status != 'DRAFT' AND NOT (
+                OLD.status = 'APPROVED' AND NEW.status = 'SUPERSEDED'
+                AND NEW.id = OLD.id AND NEW.vacancy_id = OLD.vacancy_id
+                AND NEW.version = OLD.version AND NEW.created_at = OLD.created_at
+                AND NEW.job_description_hash = OLD.job_description_hash
+                AND NEW.job_description_snapshot = OLD.job_description_snapshot
+                AND NEW.approved_at IS NOT DISTINCT FROM OLD.approved_at
+                AND NEW.approved_by IS NOT DISTINCT FROM OLD.approved_by
+                AND NEW.analysis_run_id IS NOT DISTINCT FROM OLD.analysis_run_id
+                AND NEW.revision = OLD.revision + 1
+            ) THEN
+                RAISE EXCEPTION 'Approved configurations are immutable';
+            END IF;
+            IF NEW.status = 'APPROVED' AND OLD.status != 'APPROVED' AND (
+                NOT EXISTS (SELECT 1 FROM job_criteria WHERE configuration_id = NEW.id)
+                OR (SELECT COALESCE(SUM(weight), 0) FROM job_criteria
+                    WHERE configuration_id = NEW.id) != 100
+                OR EXISTS (SELECT 1 FROM job_criteria WHERE configuration_id = NEW.id
+                    AND (weight IS NULL OR (evidence_status != 'VERIFIED' AND
+                    (evidence_acknowledged IS FALSE OR
+                     LENGTH(TRIM(acknowledgement_note)) = 0))))
+                OR NEW.job_description_snapshot != (
+                    SELECT description FROM vacancies WHERE id = NEW.vacancy_id)
+            ) THEN
+                RAISE EXCEPTION 'Invalid approval configuration';
+            END IF;
+            RETURN NEW;
+        END;
+        $$
+    """)
+    for operation in ("UPDATE", "DELETE"):
+        op.execute(
+            f"CREATE TRIGGER immutable_configuration_{operation.lower()} "
+            f"BEFORE {operation} ON criteria_configurations "
+            "FOR EACH ROW EXECUTE FUNCTION ats_protect_configuration()"
+        )
+
+
 def downgrade():
-    for name in (
-        "immutable_criterion_insert",
-        "immutable_criterion_update",
-        "immutable_criterion_delete",
-        "immutable_configuration_delete",
-        "immutable_configuration_update",
-        "validate_configuration_approval",
-    ):
-        op.execute(f"DROP TRIGGER {name}")
+    if op.get_bind().dialect.name == "postgresql":
+        for operation in ("INSERT", "UPDATE", "DELETE"):
+            op.execute(f"DROP TRIGGER immutable_criterion_{operation.lower()} ON job_criteria")
+        for operation in ("UPDATE", "DELETE"):
+            op.execute(
+                f"DROP TRIGGER immutable_configuration_{operation.lower()} "
+                "ON criteria_configurations"
+            )
+        op.execute("DROP FUNCTION ats_protect_criterion()")
+        op.execute("DROP FUNCTION ats_protect_configuration()")
+    else:
+        for name in (
+            "immutable_criterion_insert",
+            "immutable_criterion_update",
+            "immutable_criterion_delete",
+            "immutable_configuration_delete",
+            "immutable_configuration_update",
+            "validate_configuration_approval",
+        ):
+            op.execute(f"DROP TRIGGER {name}")
     with op.batch_alter_table("job_criteria", schema=None) as batch_op:
         batch_op.drop_index(batch_op.f("ix_job_criteria_configuration_id"))
 
