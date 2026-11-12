@@ -24,7 +24,12 @@ class Runtime:
         self.candidates = CandidateService(self.db)
         self.applications = ApplicationService(self.db, self.storage)
         self.documents = DocumentService(self.db, self.storage)
-        self.pipeline = PipelineService(self.db, self.documents, settings.directory)
+        self.pipeline = PipelineService(
+            self.db, self.documents, settings.directory,
+            embeddings_enabled=settings.embeddings_enabled,
+            embedding_model=settings.embedding_model,
+            embedding_base_url=settings.embedding_base_url,
+        )
         self.dashboard = DashboardService(self.db)
         self.criteria = CriteriaService(self.db)
         self.ollama_settings = OllamaSettings()
