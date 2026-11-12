@@ -1,0 +1,24 @@
+name: ATS checks
+on:
+  push:
+    branches: [main, feature/ats-pipeline]
+  pull_request:
+    branches: [main]
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install Python 3.12
+        run: uv python install 3.12
+      - name: Install dependencies
+        run: uv sync --frozen --group dev --python 3.12
+      - name: Lint
+        run: uv run --python 3.12 ruff check .
+      - name: Run regression suite (no Ollama required)
+        run: uv run --python 3.12 pytest -q -m 'not live_ollama'
