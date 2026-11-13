@@ -94,3 +94,26 @@ def test_recovery_refuses_other_failures_and_respects_disabled_mode(
         ats.db, directory, fallback_enabled=True
     )
     assert stage(ats, doc_id, "PROFILE_EXTRACTION").status == "FAILED"
+
+
+def test_upgraded_worker_requeues_missing_model_failure_once(ats, vacancy, pdf, tmp_path):
+    doc_id = prepare(ats, vacancy, pdf)
+    with ats.db.transaction() as session:
+        row = session.scalar(
+            select(DocumentPipelineStage).where(
+                DocumentPipelineStage.document_id == doc_id,
+                DocumentPipelineStage.stage == "PROFILE_EXTRACTION",
+            )
+        )
+        row.status = "FAILED"
+        row.attempts = 3
+        row.error_summary = "Model missing. Run: ollama pull qwen2.5:0.5b"
+    marker_dir = tmp_path / "missing_model_recovery"
+    assert recover_legacy_profiles_once(
+        ats.db, marker_dir, fallback_enabled=True
+    ) == {doc_id: "Requeued"}
+    assert stage(ats, doc_id, "PROFILE_EXTRACTION").status == "PENDING"
+    assert stage(ats, doc_id, "EMBEDDING").status == "COMPLETED"
+    assert recover_legacy_profiles_once(
+        ats.db, marker_dir, fallback_enabled=True
+    ) == {}
