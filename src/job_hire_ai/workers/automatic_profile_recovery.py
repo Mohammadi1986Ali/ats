@@ -20,13 +20,14 @@ from job_hire_ai.retry_profiles import requeue_profiles
 
 logger = logging.getLogger(__name__)
 
-RECOVERY_VERSION = "model-independent-cv-fast-v2"
+RECOVERY_VERSION = "timeout-to-source-only-v3"
 RECOVERABLE_ERRORS = (
     "could not produce complete valid structured output",
     "output was truncated after bounded retries",
     "returned invalid structured output",
     "model missing.",
     "ollama disconnected.",
+    "ollama timed out or disconnected.",
 )
 
 
