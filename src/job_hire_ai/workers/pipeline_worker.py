@@ -30,6 +30,10 @@ def main() -> None:
         raise ATSError(
             "Automatic evidence validation requires ATS_PROFILE_EXTRACTION_ENABLED=true."
         )
+    if settings.matching_enabled and not settings.evidence_validation_enabled:
+        raise ATSError(
+            "Automatic job matching requires ATS_EVIDENCE_VALIDATION_ENABLED=true."
+        )
     analyzer = None
     if settings.profile_extraction_enabled:
         if not settings.embeddings_enabled:
@@ -47,6 +51,7 @@ def main() -> None:
         profile_extraction_enabled=settings.profile_extraction_enabled,
         profile_analyzer=analyzer,
         evidence_validation_enabled=settings.evidence_validation_enabled,
+        matching_enabled=settings.matching_enabled,
     )
     try:
         with worker_lock(settings.directory / "pipeline-text-worker.lock"):
