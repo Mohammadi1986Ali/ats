@@ -20,6 +20,7 @@ from job_hire_ai.database.models import (
     now,
 )
 from job_hire_ai.errors import ATSError
+from job_hire_ai.services.candidate_scoring_service import CandidateScoringService
 from job_hire_ai.services.embedding_service import (
     EmbeddingService,
     LocalEmbedder,
@@ -62,7 +63,7 @@ class PipelineService:
         embedding_model="nomic-embed-text", embedding_base_url="http://127.0.0.1:11434",
         embedder=None, profile_extraction_enabled=False, profile_analyzer=None,
         evidence_validation_enabled=False, evidence_validator=None,
-        matching_enabled=False, matcher=None,
+        matching_enabled=False, matcher=None, scoring_enabled=False, scorer=None,
     ):
         self.db, self.documents = db, documents
         self.data_dir = data_dir
@@ -78,6 +79,8 @@ class PipelineService:
         self.evidence_validator = evidence_validator or EvidenceValidationService(db)
         self.matching_enabled = matching_enabled
         self.matcher = matcher or JobMatchingService(db)
+        self.scoring_enabled = scoring_enabled
+        self.scorer = scorer or CandidateScoringService(db)
         self._jd_failed_hashes = set()
 
     def ensure_worker(self) -> None:
@@ -156,7 +159,9 @@ class PipelineService:
                 return True
             if self.evidence_validation_enabled and self.process_evidence_next():
                 return True
-            return self.process_matching_next() if self.matching_enabled else False
+            if self.matching_enabled and self.process_matching_next():
+                return True
+            return self.process_scoring_next() if self.scoring_enabled else False
 
         started = time.perf_counter()
         error = None
@@ -512,6 +517,69 @@ class PipelineService:
             return True
         return self.matcher.requeue_stale()
 
+    def process_scoring_next(self) -> bool:
+        """Record evidence coverage only after successful job matching."""
+        if not self.scoring_enabled:
+            return False
+        with self.db.transaction() as session:
+            match_stage = aliased(DocumentPipelineStage)
+            stage_id = session.scalar(
+                select(DocumentPipelineStage.id)
+                .join(
+                    match_stage,
+                    match_stage.document_id == DocumentPipelineStage.document_id,
+                )
+                .join(
+                    CandidateDocument,
+                    CandidateDocument.id == DocumentPipelineStage.document_id,
+                )
+                .join(JobApplication, CandidateDocument.application_id == JobApplication.id)
+                .where(
+                    DocumentPipelineStage.stage == "SCORING",
+                    DocumentPipelineStage.status.in_(["PENDING", "WAITING"]),
+                    match_stage.stage == "MATCHING",
+                    match_stage.status == "COMPLETED",
+                    JobApplication.status == "Uploaded",
+                )
+                .order_by(DocumentPipelineStage.id)
+                .limit(1)
+            )
+            if stage_id is not None:
+                claimed = session.execute(
+                    update(DocumentPipelineStage)
+                    .where(
+                        DocumentPipelineStage.id == stage_id,
+                        DocumentPipelineStage.status.in_(["PENDING", "WAITING"]),
+                    )
+                    .values(
+                        status="RUNNING", started_at=now(), completed_at=None,
+                        error_summary=None, attempts=DocumentPipelineStage.attempts + 1,
+                    )
+                ).rowcount
+                if not claimed:
+                    return True
+                document_id = session.get(DocumentPipelineStage, stage_id).document_id
+        if stage_id is None:
+            return False
+
+        started = time.perf_counter()
+        error = None
+        try:
+            self.scorer.score_document(document_id)
+        except ATSError as exc:
+            error = str(exc)[:500]
+        except Exception:
+            logger.exception("Unexpected scoring failure for CV %s", document_id)
+            error = "Unexpected scoring failure; inspect the worker log."
+        with self.db.transaction() as session:
+            stage = session.get(DocumentPipelineStage, stage_id)
+            if stage is not None:
+                stage.status = "FAILED" if error else "COMPLETED"
+                stage.error_summary = error
+                stage.completed_at = now()
+                stage.duration_ms = round((time.perf_counter() - started) * 1000)
+        return True
+
     def _index_next_jd(self) -> bool:
         """Refresh changed job descriptions without blocking CV processing."""
         with self.db.transaction() as session:
@@ -555,6 +623,7 @@ class PipelineService:
                         + (["PROFILE_EXTRACTION"] if self.profile_extraction_enabled else [])
                         + (["EVIDENCE_VALIDATION"] if self.evidence_validation_enabled else [])
                         + (["MATCHING"] if self.matching_enabled else [])
+                        + (["SCORING"] if self.scoring_enabled else [])
                     ),
                     DocumentPipelineStage.status == "RUNNING",
                 )
