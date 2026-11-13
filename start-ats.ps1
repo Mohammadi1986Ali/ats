@@ -141,6 +141,22 @@ try {
         Fail "Database migration/connection failed. Existing database was not reset."
     }
 
+    # The background pipeline worker survives Streamlit restarts. Replace only
+    # workers using this project's virtual environment so new pipeline code and
+    # settings are loaded automatically. Startup recovery safely requeues
+    # interrupted stages; unrelated Python processes are never touched.
+    $venvDir = Join-Path $PSScriptRoot ".venv"
+    Get-CimInstance Win32_Process | Where-Object {
+        $_.CommandLine -like "*job_hire_ai.workers.pipeline_worker*" -and
+        $_.ExecutablePath -and
+        $_.ExecutablePath.StartsWith(
+            $venvDir, [System.StringComparison]::OrdinalIgnoreCase
+        )
+    } | ForEach-Object {
+        Write-Host "Restarting existing ATS pipeline worker..." -ForegroundColor Cyan
+        Stop-Process -Id $_.ProcessId -Force -ErrorAction Stop
+    }
+
     Write-Host "ATS ready. Open http://localhost:8501" -ForegroundColor Green
     Write-Host "Close with Ctrl+C. Worker starts automatically with Streamlit."
     uv run --no-sync streamlit run app.py
