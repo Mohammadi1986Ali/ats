@@ -20,16 +20,18 @@ from job_hire_ai.retry_profiles import requeue_profiles
 
 logger = logging.getLogger(__name__)
 
-RECOVERY_VERSION = "literal-cv-fallback-v1"
+RECOVERY_VERSION = "model-independent-cv-fast-v2"
 RECOVERABLE_ERRORS = (
     "could not produce complete valid structured output",
     "output was truncated after bounded retries",
     "returned invalid structured output",
+    "model missing.",
+    "ollama disconnected.",
 )
 
 
 def recover_legacy_profiles_once(db, data_dir: Path, *, fallback_enabled: bool) -> dict:
-    """Requeue only prior JSON/truncation failures exactly once per release.
+    """Requeue previous JSON and model-unavailable failures once per release.
 
     The caller must hold the single-process pipeline worker lock. A marker is
     created only after the database transaction succeeds. A subsequent start
