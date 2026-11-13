@@ -218,3 +218,20 @@ def test_crashed_evidence_audit_is_requeued(ats, vacancy, pdf):
     )
     pipeline.recover_interrupted()
     assert stage_status(ats, doc_id, "EVIDENCE_VALIDATION")[0] == "PENDING"
+
+
+def test_clean_evidence_does_not_clear_existing_extraction_review(ats, vacancy, pdf):
+    document_id, profile_id = seed_profile(
+        ats, vacancy, pdf, quote_text="Java and SQL experience."
+    )
+    with ats.db.transaction() as session:
+        profile = session.get(CandidateProfile, profile_id)
+        profile.warnings = ["Source extraction requires manual inspection."]
+        profile.analysis_status = "NEEDS_REVIEW"
+    audit = EvidenceValidationService(ats.db).validate_document(document_id)
+    assert audit.issues == ()
+    assert audit.needs_review
+    with ats.db.transaction() as session:
+        profile = session.get(CandidateProfile, profile_id)
+        assert profile.warnings == ["Source extraction requires manual inspection."]
+        assert profile.analysis_status == "NEEDS_REVIEW"
