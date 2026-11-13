@@ -12,6 +12,7 @@ from job_hire_ai.ai.cv_prompts import CV_PROMPT_TOKEN_RESERVE, CV_PROMPT_VERSION
 from job_hire_ai.ai.cv_schemas import PROFILE_SECTIONS, SCHEMA_VERSION
 from job_hire_ai.ai.cv_wire import WIRE_VERSION
 from job_hire_ai.ai.extraction_merger import merge_extractions
+from job_hire_ai.ai.literal_cv_fallback import extract_literal_skills
 from job_hire_ai.ai.provider import InferenceMetrics
 from job_hire_ai.database.models import (
     CandidateDocument,
@@ -199,6 +200,8 @@ class CVAnalysisService:
                     "schema": SCHEMA_VERSION,
                     "extractor": EXTRACTOR_VERSION,
                     "wire": WIRE_VERSION,
+                    "literal_fallback": self.settings.cv_literal_fallback_enabled,
+                    "fallback_version": "literal-skills-v1",
                     "cv_chunk_chars": self.settings.cv_chunk_chars,
                     "cv_truncation_retries": self.settings.cv_truncation_retries,
                     "cv_max_model_calls": self.settings.cv_max_model_calls,
@@ -309,7 +312,25 @@ class CVAnalysisService:
                         f"Analyzing chunk {index}/{len(chunks)}",
                     )
                 self._stage(job_id, token, "ANALYZING", run_id, chunk_count=len(chunks))
-                output = self.provider.analyze_cv(chunk)
+                try:
+                    output = self.provider.analyze_cv(chunk)
+                except ATSError as exc:
+                    # Never treat an unavailable model/timeout as successful
+                    # inference. Only schema/truncation failures qualify for
+                    # an explicitly incomplete, evidence-only fallback.
+                    message = str(exc).lower()
+                    recoverable = (
+                        "valid structured output" in message
+                        or "invalid structured output" in message
+                        or "truncated" in message
+                    )
+                    if not self.settings.cv_literal_fallback_enabled or not recoverable:
+                        raise
+                    if getattr(exc, "metrics", None) is not None:
+                        metrics.add(exc.metrics)
+                    fallback = extract_literal_skills(chunk)
+                    outputs.append(fallback)
+                    continue
                 if output.model != status.model or output.digest != status.digest:
                     raise ATSError(
                         "Model changed during CV analysis. Retry with one stable local model."
