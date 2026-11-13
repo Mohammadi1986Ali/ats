@@ -90,10 +90,9 @@ def make_data(ats, vacancy, pdf, *, supported=True):
 def approve_criteria(ats, vacancy, *, names=("Java", "Python")):
     with ats.db.transaction() as session:
         configuration = CriteriaConfiguration(
-            vacancy_id=vacancy.id, version=1, status="APPROVED",
+            vacancy_id=vacancy.id, version=1, status="DRAFT",
             job_description_hash=description_hash(vacancy.description),
             job_description_snapshot=vacancy.description,
-            approved_at=datetime.now(UTC),
             revision=1,
         )
         session.add(configuration)
@@ -110,6 +109,10 @@ def approve_criteria(ats, vacancy, *, names=("Java", "Python")):
                 acknowledgement_note="", weight=100 if len(names) == 1 else 50,
                 display_order=number, created_by="MANUAL",
             ))
+        session.flush()
+        # Approve only after saving criteria, honoring DB immutability triggers.
+        configuration.approved_at = datetime.now(UTC)
+        configuration.status = "APPROVED"
         return configuration.id
 
 
