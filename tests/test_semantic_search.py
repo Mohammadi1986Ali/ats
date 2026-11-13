@@ -4,6 +4,7 @@ import pytest
 from sqlalchemy import select
 
 from job_hire_ai.database.models import CandidateDocument, JobApplication
+from job_hire_ai.schemas import VacancyInput
 from job_hire_ai.services.embedding_service import Chunk, DIMENSIONS, EmbeddingService
 from job_hire_ai.services.semantic_search_service import SemanticSearchService
 
@@ -24,9 +25,7 @@ class StubEmbedder:
 
 def test_semantic_retrieval_is_scoped_and_source_grounded(ats, vacancy, pdf):
     another = ats.vacancies.create(
-        __import__("job_hire_ai.schemas", fromlist=["VacancyInput"]).VacancyInput(
-            title="Second vacancy", description="Python data pipelines."
-        )
+        VacancyInput(title="Second vacancy", description="Python data pipelines.")
     )
     assert ats.documents.upload_batch(vacancy.id, [("first.pdf", pdf)])[0].success
     assert ats.documents.upload_batch(another.id, [("other.pdf", pdf)])[0].success
