@@ -105,8 +105,18 @@ try {
         # Verify real TCP authentication rather than trusting docker health checks;
         # the latter do not prove that the configured password matches the volume.
         $check = "import os,psycopg; c=psycopg.connect(host='127.0.0.1',port=5433,dbname='job_hire_ai',user='ats',password=os.environ['ATS_POSTGRES_PASSWORD'],connect_timeout=5); c.close()"
-        uv run --no-sync python -c $check 2>$null
-        if ($LASTEXITCODE -eq 0) {
+        # Windows PowerShell 5.1 turns native stderr into a terminating
+        # NativeCommandError when ErrorActionPreference is Stop. Suppress only
+        # this expected failed-authentication probe, not launcher failures.
+        $oldPreference = $ErrorActionPreference
+        try {
+            $ErrorActionPreference = "Continue"
+            uv run --no-sync python -c $check 2>$null | Out-Null
+            $checkExit = $LASTEXITCODE
+        } finally {
+            $ErrorActionPreference = $oldPreference
+        }
+        if ($checkExit -eq 0) {
             $connected = $true
             break
         }
