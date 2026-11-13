@@ -4,6 +4,7 @@ This is not human approval. A successful audit may still require human review.
 No LLM is invoked and no candidate is scored or ranked.
 """
 
+import json
 from dataclasses import dataclass
 
 from sqlalchemy import select
@@ -66,7 +67,7 @@ class EvidenceValidationService:
                 raise ATSError("Profile source does not match the current uploaded CV.")
             try:
                 source = ExtractedText.deserialize(extracted.source)
-                payload = CVExtraction.model_validate(profile.original_extraction)
+                payload = CVExtraction.model_validate_json(json.dumps(profile.original_extraction))
             except (ValueError, KeyError, TypeError) as exc:
                 raise ATSError(
                     "Persisted profile or source is invalid; review extraction."
@@ -111,30 +112,28 @@ class EvidenceValidationService:
                         row = candidates[0]
                         remaining.remove(row)
                         checked = verify_quote(quote, source, document_id)
-                        row.source_reference = checked.source_reference
-                        row.verification_status = checked.verification_status
-                        row.page_number = checked.page_number
-                        row.character_start = checked.character_start
-                        row.character_end = checked.character_end
                         if checked.verification_status != "VERIFIED":
                             issues.append(
                                 f"{path}: {checked.verification_status.lower()} source evidence."
                             )
+                        if (
+                            row.source_reference != checked.source_reference
+                            or row.verification_status != checked.verification_status
+                            or row.page_number != checked.page_number
+                            or row.character_start != checked.character_start
+                            or row.character_end != checked.character_end
+                        ):
+                            issues.append(f"{path}: stored evidence location/status differs.")
             if by_path:
                 raise ATSError("Unexpected evidence rows exist for this profile.")
 
-            # Preserve extraction warnings and all reviewer corrections. This
-            # automated audit never creates a human validation review event.
-            prefix = "Evidence audit: "
-            warnings = [
-                warning for warning in profile.warnings
-                if not warning.startswith(prefix)
-            ]
-            warnings.extend(prefix + issue for issue in issues)
-            profile.warnings = list(dict.fromkeys(warnings))
-            if profile.warnings:
-                profile.analysis_status = "NEEDS_REVIEW"
+            # The database intentionally makes extraction and evidence history
+            # immutable. Return audit findings for the mutable pipeline-stage
+            # diagnostics; never rewrite AI output or reviewer decisions.
             return EvidenceAudit(
-                profile.id, claim_count, quote_count, tuple(issues),
-                profile.analysis_status == "NEEDS_REVIEW",
+                profile.id,
+                claim_count,
+                quote_count,
+                tuple(dict.fromkeys(issues)),
+                bool(issues or profile.warnings or profile.analysis_status == "NEEDS_REVIEW"),
             )
