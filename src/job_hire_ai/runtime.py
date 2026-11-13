@@ -9,8 +9,8 @@ from job_hire_ai.services.criteria_service import CriteriaService
 from job_hire_ai.services.cv_analysis_service import CVAnalysisService
 from job_hire_ai.services.dashboard_service import DashboardService
 from job_hire_ai.services.document_service import DocumentService
-from job_hire_ai.services.pipeline_service import PipelineService
 from job_hire_ai.services.embedding_service import LocalEmbedder
+from job_hire_ai.services.pipeline_service import PipelineService
 from job_hire_ai.services.semantic_search_service import SemanticSearchService
 from job_hire_ai.services.vacancy_service import VacancyService
 from job_hire_ai.settings import Settings
