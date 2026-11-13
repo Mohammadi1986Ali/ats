@@ -27,6 +27,9 @@ for attempt in range(30):
             print("PostgreSQL rejected the saved password.", file=sys.stderr)
             sys.exit(2)
         if attempt == 29:
-            print("PostgreSQL is not reachable on localhost:5433. Check Docker logs.", file=sys.stderr)
+            print(
+                "PostgreSQL is not reachable on localhost:5433. Check Docker logs.",
+                file=sys.stderr,
+            )
             sys.exit(3)
         time.sleep(1)
