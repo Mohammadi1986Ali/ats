@@ -12,7 +12,7 @@ from job_hire_ai.ai.cv_prompts import CV_PROMPT_TOKEN_RESERVE, CV_PROMPT_VERSION
 from job_hire_ai.ai.cv_schemas import PROFILE_SECTIONS, SCHEMA_VERSION
 from job_hire_ai.ai.cv_wire import WIRE_VERSION
 from job_hire_ai.ai.extraction_merger import merge_extractions
-from job_hire_ai.ai.literal_cv_fallback import extract_literal_skills
+from job_hire_ai.ai.literal_cv_fallback import FAST_MODE_WARNING, extract_literal_skills
 from job_hire_ai.ai.provider import InferenceMetrics
 from job_hire_ai.database.models import (
     CandidateDocument,
@@ -201,6 +201,7 @@ class CVAnalysisService:
                     "extractor": EXTRACTOR_VERSION,
                     "wire": WIRE_VERSION,
                     "literal_fallback": self.settings.cv_literal_fallback_enabled,
+                    "fast_mode_1b": self.settings.cv_fast_mode_1b,
                     "fallback_version": "literal-skills-v1",
                     "cv_chunk_chars": self.settings.cv_chunk_chars,
                     "cv_truncation_retries": self.settings.cv_truncation_retries,
@@ -295,6 +296,37 @@ class CVAnalysisService:
                 cached_status = CandidateProfileService.status(cached) if cached else None
             if cached:
                 self._finish(job_id, token, run_id, cached_status, started, reused=True)
+                return True
+            # A CPU-only 1B model can spend many minutes producing malformed
+            # JSON per CV chunk. Do not block the entire upload queue in this
+            # opt-out fast mode: keep only literal source-quoted mentions and
+            # explicitly require human review. A larger model uses normal AI
+            # extraction unchanged.
+            if (
+                self.settings.cv_fast_mode_1b
+                and self.settings.cv_literal_fallback_enabled
+                and self.settings.model == "llama3.2:1b"
+            ):
+                extraction = extract_literal_skills(
+                    [
+                        {"reference": part.reference, "text": part.text}
+                        for part in source.segments
+                    ],
+                    warning=FAST_MODE_WARNING,
+                )
+                self._stage(
+                    job_id, token, "VALIDATING", run_id,
+                    chunk_count=0, chunks_completed=0,
+                    inference_options={
+                        **self.settings.options(),
+                        "metrics": metrics.serialize(),
+                        "extraction_mode": "literal-fast-1b",
+                    },
+                )
+                self._save_profile(
+                    job_id, token, run_id, document_id, source_id,
+                    source, extraction, config_hash, started,
+                )
                 return True
             # Reserve prompt/schema and response tokens before budgeting chunk text.
             budget = min(
