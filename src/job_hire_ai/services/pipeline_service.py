@@ -1,4 +1,4 @@
-"""Durable CV upload-to-text pipeline. No language model is invoked in Phase 1."""
+"""Durable automatic CV processing pipeline with separately gated model stages."""
 
 import hashlib
 import logging
@@ -58,7 +58,7 @@ class PipelineService:
     def __init__(
         self, db, documents, data_dir: Path, *, embeddings_enabled=False,
         embedding_model="nomic-embed-text", embedding_base_url="http://127.0.0.1:11434",
-        embedder=None,
+        embedder=None, profile_extraction_enabled=False, profile_analyzer=None,
     ):
         self.db, self.documents = db, documents
         self.data_dir = data_dir
@@ -68,6 +68,8 @@ class PipelineService:
             EmbeddingService(db, embedder or LocalEmbedder(embedding_base_url, embedding_model))
             if embeddings_enabled else None
         )
+        self.profile_extraction_enabled = profile_extraction_enabled
+        self.profile_analyzer = profile_analyzer
         self._jd_failed_hashes = set()
 
     def ensure_worker(self) -> None:
@@ -140,7 +142,9 @@ class PipelineService:
                     return True
                 document_id = session.get(DocumentPipelineStage, stage_id).document_id
         if stage_id is None:
-            return self.process_embedding_next() if self.embeddings_enabled else False
+            if self.embeddings_enabled and self.process_embedding_next():
+                return True
+            return self.process_profile_next() if self.profile_extraction_enabled else False
 
         started = time.perf_counter()
         error = None
@@ -280,6 +284,80 @@ class PipelineService:
                 stage.duration_ms = round((time.perf_counter() - started) * 1000)
         return True
 
+
+    def process_profile_next(self) -> bool:
+        """Run existing source-verified CV analysis after embedding, without a UI click.
+
+        An analysis that yields NEEDS_REVIEW still produced a persisted profile.
+        Do not mark the later EVIDENCE_VALIDATION pipeline stage as completed:
+        human review and separate evidence validation remain explicit.
+        """
+        if not self.profile_extraction_enabled or self.profile_analyzer is None:
+            return False
+        with self.db.transaction() as session:
+            embedding = aliased(DocumentPipelineStage)
+            stage_id = session.scalar(
+                select(DocumentPipelineStage.id)
+                .join(embedding, embedding.document_id == DocumentPipelineStage.document_id)
+                .join(CandidateDocument, CandidateDocument.id == DocumentPipelineStage.document_id)
+                .join(JobApplication, CandidateDocument.application_id == JobApplication.id)
+                .where(
+                    DocumentPipelineStage.stage == "PROFILE_EXTRACTION",
+                    DocumentPipelineStage.status.in_(["PENDING", "WAITING"]),
+                    embedding.stage == "EMBEDDING",
+                    embedding.status == "COMPLETED",
+                    JobApplication.status == "Uploaded",
+                )
+                .order_by(DocumentPipelineStage.id).limit(1)
+            )
+            if stage_id is not None:
+                claimed = session.execute(
+                    update(DocumentPipelineStage)
+                    .where(
+                        DocumentPipelineStage.id == stage_id,
+                        DocumentPipelineStage.status.in_(["PENDING", "WAITING"]),
+                    )
+                    .values(
+                        status="RUNNING", started_at=now(), completed_at=None,
+                        error_summary=None, attempts=DocumentPipelineStage.attempts + 1,
+                    )
+                ).rowcount
+                if not claimed:
+                    return True
+                document = session.get(
+                    CandidateDocument, session.get(DocumentPipelineStage, stage_id).document_id
+                )
+                document_id, vacancy_id = document.id, document.vacancy_id
+
+        if stage_id is None:
+            return False
+        started = time.perf_counter()
+        error = None
+        try:
+            # CVAnalysisService already enforces strict schemas, real evidence
+            # references, bounded Ollama retries, and transactional profile saving.
+            batch_id = self.profile_analyzer.create_batch(vacancy_id, [document_id])
+            self.profile_analyzer.process_batch(batch_id)
+            job = self.profile_analyzer.jobs(batch_id)[0]
+            if job.status not in {"COMPLETED", "NEEDS_REVIEW"}:
+                raise ATSError(
+                    job.error_summary or "CV profile extraction failed; inspect the analysis run."
+                )
+        except ATSError as exc:
+            error = str(exc)[:500]
+        except Exception:
+            logger.exception("Unexpected profile-extraction failure for document %s", document_id)
+            error = "Unexpected profile extraction error; inspect the worker log."
+
+        with self.db.transaction() as session:
+            stage = session.get(DocumentPipelineStage, stage_id)
+            if stage is not None:
+                stage.status = "FAILED" if error else "COMPLETED"
+                stage.error_summary = error
+                stage.completed_at = now()
+                stage.duration_ms = round((time.perf_counter() - started) * 1000)
+        return True
+
     def _index_next_jd(self) -> bool:
         """Refresh changed job descriptions without blocking CV processing."""
         with self.db.transaction() as session:
@@ -318,8 +396,9 @@ class PipelineService:
             for stage in session.scalars(
                 select(DocumentPipelineStage).where(
                     DocumentPipelineStage.stage.in_(
-                        ["TEXT_EXTRACTION", "EMBEDDING"] if self.embeddings_enabled
-                        else ["TEXT_EXTRACTION"]
+                        ["TEXT_EXTRACTION"]
+                        + (["EMBEDDING"] if self.embeddings_enabled else [])
+                        + (["PROFILE_EXTRACTION"] if self.profile_extraction_enabled else [])
                     ),
                     DocumentPipelineStage.status == "RUNNING",
                 )
