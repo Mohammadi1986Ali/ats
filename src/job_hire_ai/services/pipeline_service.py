@@ -514,6 +514,18 @@ class PipelineService:
                     stage.error_summary = error
                     stage.completed_at = now()
                     stage.duration_ms = round((time.perf_counter() - started) * 1000)
+                    if not error and self.scoring_enabled:
+                        score_stage = session.scalar(
+                            select(DocumentPipelineStage).where(
+                                DocumentPipelineStage.document_id == document_id,
+                                DocumentPipelineStage.stage == "SCORING",
+                            )
+                        )
+                        if score_stage is not None and score_stage.status in (
+                            "WAITING", "COMPLETED", "FAILED"
+                        ):
+                            score_stage.status = "PENDING"
+                            score_stage.error_summary = None
             return True
         return self.matcher.requeue_stale()
 
