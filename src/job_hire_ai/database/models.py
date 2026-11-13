@@ -375,6 +375,45 @@ class JobMatchResult(Base):
 
 
 
+
+class CandidateScoreSnapshot(Base):
+    """Documented evidence coverage; not a prediction of candidate suitability."""
+
+    __tablename__ = "candidate_score_snapshots"
+    __table_args__ = (
+        UniqueConstraint("match_result_id", "method_version", name="uq_scoring_snapshot"),
+        CheckConstraint("documented_weight BETWEEN 0 AND 100"),
+        CheckConstraint("unverified_weight BETWEEN 0 AND 100"),
+        CheckConstraint("review_weight BETWEEN 0 AND 100"),
+        CheckConstraint(
+            "documented_weight + unverified_weight + review_weight = 100"
+        ),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    match_result_id: Mapped[int] = mapped_column(
+        ForeignKey("job_match_results.id", ondelete="CASCADE"), index=True
+    )
+    document_id: Mapped[int] = mapped_column(
+        ForeignKey("candidate_documents.id", ondelete="CASCADE"), index=True
+    )
+    vacancy_id: Mapped[int] = mapped_column(
+        ForeignKey("vacancies.id", ondelete="CASCADE"), index=True
+    )
+    configuration_id: Mapped[int] = mapped_column(
+        ForeignKey("criteria_configurations.id"), index=True
+    )
+    profile_id: Mapped[int] = mapped_column(
+        ForeignKey("candidate_profiles.id", ondelete="CASCADE"), index=True
+    )
+    method_version: Mapped[str] = mapped_column(String(60))
+    documented_weight: Mapped[int]
+    unverified_weight: Mapped[int]
+    review_weight: Mapped[int]
+    criterion_breakdown: Mapped[list] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(default=now)
+
+
+
 class DocumentPipelineStage(Base):
     """Durable, application-specific stage state; one stage per uploaded document."""
 
