@@ -267,6 +267,62 @@ class CVAnalysisService:
                 progress(self.summary(batch_id), document_id, "Extracting source text")
             filename, data, _ = self.documents.download(document_id)
             source, source_id = self._text(document_id, filename, data)
+            # No model check is needed here: this mode performs no LLM calls.
+            # It saves only explicitly labelled, source-quoted *partial* evidence.
+            # An absent/down Ollama model must not fail background CV extraction.
+            fast_mode = (
+                self.settings.cv_fast_mode_1b
+                and self.settings.cv_literal_fallback_enabled
+                and self.settings.model in {"llama3.2:1b", "qwen2.5:0.5b"}
+            )
+            if fast_mode:
+                config_hash = self._configuration_hash("no-model-fast-mode")
+                self._stage(
+                    job_id, token, "ANALYZING", run_id,
+                    config_hash=config_hash,
+                )
+                with self.db.transaction() as session:
+                    cached = (
+                        None
+                        if job.force_reanalysis
+                        else session.scalar(
+                            select(CandidateProfile)
+                            .where(
+                                CandidateProfile.document_id == document_id,
+                                CandidateProfile.config_hash == config_hash,
+                            )
+                            .options(selectinload(CandidateProfile.reviews))
+                            .order_by(CandidateProfile.id.desc())
+                        )
+                    )
+                    cached_status = (
+                        CandidateProfileService.status(cached) if cached else None
+                    )
+                if cached is not None:
+                    self._finish(job_id, token, run_id, cached_status, started, reused=True)
+                    return True
+                extraction = extract_literal_skills(
+                    [
+                        {"reference": part.reference, "text": part.text}
+                        for part in source.segments
+                    ],
+                    warning=FAST_MODE_WARNING,
+                )
+                self._stage(
+                    job_id, token, "VALIDATING", run_id,
+                    chunk_count=0, chunks_completed=0,
+                    inference_options={
+                        **self.settings.options(),
+                        "metrics": metrics.serialize(),
+                        "extraction_mode": "literal-fast-1b",
+                    },
+                )
+                self._save_profile(
+                    job_id, token, run_id, document_id, source_id,
+                    source, extraction, config_hash, started,
+                )
+                return True
+
             status = self.provider.check()
             if not status.available:
                 raise ATSError(status.message)
@@ -296,37 +352,6 @@ class CVAnalysisService:
                 cached_status = CandidateProfileService.status(cached) if cached else None
             if cached:
                 self._finish(job_id, token, run_id, cached_status, started, reused=True)
-                return True
-            # A CPU-only 1B model can spend many minutes producing malformed
-            # JSON per CV chunk. Do not block the entire upload queue in this
-            # opt-out fast mode: keep only literal source-quoted mentions and
-            # explicitly require human review. A larger model uses normal AI
-            # extraction unchanged.
-            if (
-                self.settings.cv_fast_mode_1b
-                and self.settings.cv_literal_fallback_enabled
-                and self.settings.model in {"llama3.2:1b", "qwen2.5:0.5b"}
-            ):
-                extraction = extract_literal_skills(
-                    [
-                        {"reference": part.reference, "text": part.text}
-                        for part in source.segments
-                    ],
-                    warning=FAST_MODE_WARNING,
-                )
-                self._stage(
-                    job_id, token, "VALIDATING", run_id,
-                    chunk_count=0, chunks_completed=0,
-                    inference_options={
-                        **self.settings.options(),
-                        "metrics": metrics.serialize(),
-                        "extraction_mode": "literal-fast-1b",
-                    },
-                )
-                self._save_profile(
-                    job_id, token, run_id, document_id, source_id,
-                    source, extraction, config_hash, started,
-                )
                 return True
             # Reserve prompt/schema and response tokens before budgeting chunk text.
             budget = min(
