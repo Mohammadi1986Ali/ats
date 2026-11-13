@@ -38,7 +38,8 @@ def provider(responses, **options):
     )
     client.chat.side_effect = responses
     return OllamaProvider(
-        OllamaSettings(_env_file=None, **options), Mock(return_value=client)
+        OllamaSettings(_env_file=None, model="llama3.2:1b", **options),
+        Mock(return_value=client)
     ), client
 
 
