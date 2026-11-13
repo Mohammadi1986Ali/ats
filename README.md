@@ -335,3 +335,34 @@ Run offline stage-orchestration tests with:
 ```powershell
 uv run --no-sync pytest tests/test_automatic_profiles.py
 ```
+
+## Phase 3.5: deterministic evidence audit
+
+With `ATS_EVIDENCE_VALIDATION_ENABLED=true`, the local worker continues
+`TEXT_EXTRACTION → EMBEDDING → PROFILE_EXTRACTION → EVIDENCE_VALIDATION`
+automatically. The standard Windows `Start ATS.cmd` launcher enables this
+flag and restarts the detached worker on launch.
+
+Evidence validation operates on the **actual persisted CV profile** and the
+original extracted CV text. It re-checks each claim's quoted source,
+reference, location, and literal evidence consistency, detects missing or
+unexpected evidence rows, and records warnings on the versioned profile.
+Unverified or ambiguous sources mark the profile `NEEDS_REVIEW`; structural
+validation errors mark the pipeline stage `FAILED` with a diagnostic.
+Completed evidence audits may still have a visible warning stating that human
+review is required. Completion means **automated checks ran**, not that an
+HR reviewer accepted the evidence. No fabricated AI responses, candidate
+ranking, automatic hiring decisions, or silent approval are introduced.
+
+The audit is idempotent, preserves original generated profile content and
+manual reviewer events, and leaves `MATCHING`, `SCORING`, and `HR_REVIEW`
+for later stages. It introduces no database schema changes. For Streamlit
+started manually instead of through the Windows launcher, set
+`ATS_EVIDENCE_VALIDATION_ENABLED=true` in the ignored local `.env` and
+restart both Streamlit and the existing detached worker.
+
+Test the deterministic behavior offline with:
+
+```powershell
+uv run --no-sync pytest tests/test_evidence_validation_pipeline.py
+```
