@@ -368,3 +368,38 @@ Test the deterministic behavior offline with:
 ```powershell
 uv run --no-sync pytest tests/test_evidence_validation_pipeline.py
 ```
+
+## Phase 3.6: job-to-CV evidence matching (no score)
+
+With `ATS_MATCHING_ENABLED=true` and the previous pipeline stages enabled,
+the worker advances automatically from `EVIDENCE_VALIDATION` to `MATCHING`
+**only after HR approves criteria for the current job-description revision**.
+Without approved/current criteria, matching stays `WAITING`; there is no
+fictional match, default ranking or automatic rejection. The Windows
+`Start ATS.cmd` launcher turns the matching stage on automatically.
+
+The matching implementation is deliberately conservative. A criterion is
+`EVIDENCED` only if its exact name appears in a supported extracted claim
+**and** an associated, independently verified original CV quote. Otherwise
+it is `NOT_EVIDENCED` (no evidence found, **not** "candidate lacks skill").
+Unverified/unacknowledged job criteria are `REVIEW_REQUIRED`. It never
+converts embedding cosine similarity into a factual assertion about the
+candidate. This literal-only baseline may miss legitimate synonyms or
+paraphrases. No suitability score, rank, hiring decision or inferred years
+of experience is generated.
+
+Every result stores the approved criteria configuration ID, CV document ID,
+profile version ID, criterion key/status, and real source quote/reference.
+An additive Alembic migration creates `job_match_results`, without resetting
+existing data. A newer approved criteria version automatically requeues
+completed matching, preserving old snapshots for audit.
+
+To inspect already-computed results without triggering any AI work:
+
+```powershell
+uv run --no-sync python -m job_hire_ai.match_cli --vacancy-id 1
+uv run --no-sync python -m job_hire_ai.match_cli --vacancy-id 1 --document-id 2
+```
+
+Test offline with `uv run --no-sync pytest tests/test_job_matching.py`.
+`SCORING` and `HR_REVIEW` remain waiting; no automatic HR approvals are made.
