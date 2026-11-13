@@ -104,8 +104,7 @@ try {
 
         # Verify real TCP authentication rather than trusting docker health checks;
         # the latter do not prove that the configured password matches the volume.
-        $check = 'import os,sys,time,psycopg; ok=False; ' +
-            'exec("for i in range(12):\\n try:\\n  c=psycopg.connect(host=\'127.0.0.1\',port=5433,dbname=\'job_hire_ai\',user=\'ats\',password=os.environ[\'ATS_POSTGRES_PASSWORD\'],connect_timeout=3); c.close(); ok=True; break\\n except psycopg.OperationalError:\\n  time.sleep(1)"); sys.exit(0 if ok else 1)'
+        $check = "import os,psycopg; c=psycopg.connect(host='127.0.0.1',port=5433,dbname='job_hire_ai',user='ats',password=os.environ['ATS_POSTGRES_PASSWORD'],connect_timeout=5); c.close()"
         uv run --no-sync python -c $check 2>$null
         if ($LASTEXITCODE -eq 0) {
             $connected = $true
