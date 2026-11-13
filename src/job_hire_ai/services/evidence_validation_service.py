@@ -67,7 +67,9 @@ class EvidenceValidationService:
                 source = ExtractedText.deserialize(extracted.source)
                 payload = CVExtraction.model_validate(profile.original_extraction)
             except (ValueError, KeyError, TypeError) as exc:
-                raise ATSError("Persisted profile or source is invalid; review extraction.") from exc
+                raise ATSError(
+                    "Persisted profile or source is invalid; review extraction."
+                ) from exc
 
             existing = list(
                 session.scalars(
