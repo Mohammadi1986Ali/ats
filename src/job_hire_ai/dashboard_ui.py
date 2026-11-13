@@ -144,9 +144,8 @@ def monitor_live(ats):
     st.dataframe(pd.DataFrame(stage_breakdown(all_items)), hide_index=True,
                  width="stretch")
     st.caption(
-        "Embedding, profile extraction and automated evidence checks run when enabled. "
-        "Matching uses approved job criteria when enabled; scoring and HR review "
-        "HR review remains a separate future phase."
+        "Embedding, profile extraction, evidence checks, matching and evidence-coverage "
+        "scoring run when enabled. HR review remains a separate future phase."
     )
     st.subheader("CV monitor")
     filter_col, search_col = st.columns([1, 2])
