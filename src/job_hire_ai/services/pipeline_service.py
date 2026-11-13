@@ -409,9 +409,11 @@ class PipelineService:
         started = time.perf_counter()
         error = None
         issues = 0
+        needs_review = False
         try:
             audit = self.evidence_validator.validate_document(document_id)
             issues = len(audit.issues)
+            needs_review = getattr(audit, "needs_review", bool(audit.issues))
         except ATSError as exc:
             error = str(exc)[:500]
         except Exception:
@@ -424,7 +426,7 @@ class PipelineService:
                 stage.error_summary = (
                     error if error else
                     f"Evidence audit found {issues} issue(s); human review required."
-                    if issues else None
+                    if needs_review else None
                 )
                 stage.completed_at = now()
                 stage.duration_ms = round((time.perf_counter() - started) * 1000)
