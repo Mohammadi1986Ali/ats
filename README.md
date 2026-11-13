@@ -346,9 +346,11 @@ flag and restarts the detached worker on launch.
 Evidence validation operates on the **actual persisted CV profile** and the
 original extracted CV text. It re-checks each claim's quoted source,
 reference, location, and literal evidence consistency, detects missing or
-unexpected evidence rows, and records warnings on the versioned profile.
-Unverified or ambiguous sources mark the profile `NEEDS_REVIEW`; structural
-validation errors mark the pipeline stage `FAILED` with a diagnostic.
+unexpected evidence rows, and reports audit findings in the pipeline stage
+without changing the immutable versioned profile or its evidence records.
+Unverified or ambiguous sources require human review and are flagged in
+the pipeline-stage diagnostic; immutable extraction status is preserved.
+Structural validation errors mark the pipeline stage `FAILED` with a diagnostic.
 Completed evidence audits may still have a visible warning stating that human
 review is required. Completion means **automated checks ran**, not that an
 HR reviewer accepted the evidence. No fabricated AI responses, candidate
