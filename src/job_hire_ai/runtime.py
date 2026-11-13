@@ -4,6 +4,7 @@ from job_hire_ai.ai.settings import OllamaSettings
 from job_hire_ai.database.session import Database
 from job_hire_ai.services.application_service import ApplicationService
 from job_hire_ai.services.candidate_profile_service import CandidateProfileService
+from job_hire_ai.services.candidate_scoring_service import CandidateScoringService
 from job_hire_ai.services.candidate_service import CandidateService
 from job_hire_ai.services.criteria_service import CriteriaService
 from job_hire_ai.services.cv_analysis_service import CVAnalysisService
@@ -37,6 +38,7 @@ class Runtime:
             self.db, LocalEmbedder(settings.embedding_base_url, settings.embedding_model),
         )
         self.job_matching = JobMatchingService(self.db)
+        self.candidate_scoring = CandidateScoringService(self.db)
         self.dashboard = DashboardService(self.db)
         self.criteria = CriteriaService(self.db)
         self.ollama_settings = OllamaSettings()
