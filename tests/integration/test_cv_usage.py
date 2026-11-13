@@ -44,6 +44,11 @@ def test_usage_persists_on_success_and_truncation_failure_without_overwriting_pr
     ats.cv_analysis.provider.settings = ats.ollama_settings.model_copy(
         update={"cv_truncation_retries": 1}
     )
+    # This test covers the fail-closed, no-fallback configuration. The
+    # source-grounded partial fallback has its own separate integration tests.
+    ats.cv_analysis.settings = ats.cv_analysis.settings.model_copy(
+        update={"cv_literal_fallback_enabled": False}
+    )
     client.chat.return_value.done_reason = "length"
     client.chat.return_value.message.content = '{"records":['
     failed = ats.cv_analysis.create_batch(vacancy.id, [document_id], force=True)
