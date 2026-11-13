@@ -17,7 +17,9 @@ from job_hire_ai.database.session import Database
 from job_hire_ai.settings import Settings
 
 
-def requeue_profiles(db, document_ids: list[int], max_attempts: int = 3) -> dict[int, str]:
+def requeue_profiles(
+    db, document_ids: list[int], max_attempts: int = 3, allow_exhausted: bool = False
+) -> dict[int, str]:
     """Only requeue failed profile stages with completed source/embedding prerequisites."""
     outcomes = {}
     with db.transaction() as session:
@@ -46,9 +48,13 @@ def requeue_profiles(db, document_ids: list[int], max_attempts: int = 3) -> dict
                 outcomes[document_id] = f"Not failed ({profile.status}); unchanged"
             elif embedding.status != "COMPLETED":
                 outcomes[document_id] = "Embedding not completed"
-            elif profile.attempts >= max_attempts:
+            elif profile.attempts >= max_attempts and not allow_exhausted:
                 outcomes[document_id] = "Retry limit reached; inspect failure"
             else:
+                # One explicit operator-authorized recovery cycle after code or
+                # model changes. Ordinary retries still honor bounded attempts.
+                if profile.attempts >= max_attempts:
+                    profile.attempts = 0
                 profile.status = "PENDING"
                 profile.error_summary = None
                 profile.completed_at = None
@@ -59,12 +65,18 @@ def requeue_profiles(db, document_ids: list[int], max_attempts: int = 3) -> dict
 def main() -> int:
     parser = argparse.ArgumentParser(description="Requeue failed automatic CV extraction")
     parser.add_argument("--document-ids", nargs="+", type=int, required=True)
+    parser.add_argument(
+        "--allow-exhausted", action="store_true",
+        help="Explicitly reset failed stage attempt counts for one recovery cycle.",
+    )
     args = parser.parse_args()
     if any(document_id <= 0 for document_id in args.document_ids):
         parser.error("CV document IDs must be positive.")
     db = Database(Settings().database_url)
     try:
-        results = requeue_profiles(db, args.document_ids)
+        results = requeue_profiles(
+            db, args.document_ids, allow_exhausted=args.allow_exhausted
+        )
         for document_id, outcome in results.items():
             print(f"CV {document_id}: {outcome}")
         print("The existing background worker will process requeued CVs automatically.")
