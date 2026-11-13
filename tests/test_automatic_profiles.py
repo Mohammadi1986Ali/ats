@@ -110,3 +110,30 @@ def test_interrupted_profile_is_requeued_without_rewriting_embeddings(ats, vacan
     pipeline.recover_interrupted()
     assert get_stage(ats, document_id, "PROFILE_EXTRACTION").status == "PENDING"
     assert get_stage(ats, document_id, "EMBEDDING").status == "COMPLETED"
+
+
+def test_profile_waits_for_embedding_and_respects_removed_applications(ats, vacancy, pdf):
+    assert ats.documents.upload_batch(vacancy.id, [("early.pdf", pdf)])[0].success
+    with ats.db.transaction() as session:
+        doc = session.scalar(
+            select(CandidateDocument).where(CandidateDocument.vacancy_id == vacancy.id)
+        )
+        doc_id, application_id = doc.id, doc.application_id
+    analyzer = FakeAnalyzer()
+    pipeline = PipelineService(
+        ats.db, ats.documents, ats.pipeline.data_dir,
+        profile_extraction_enabled=True, profile_analyzer=analyzer,
+    )
+    assert not pipeline.process_profile_next()  # Text/embedding have not completed yet.
+    assert analyzer.calls == []
+    with ats.db.transaction() as session:
+        session.get(JobApplication, application_id).status = "Removed"
+        for stage in session.scalars(
+            select(DocumentPipelineStage).where(
+                DocumentPipelineStage.document_id == doc_id,
+                DocumentPipelineStage.stage.in_(["TEXT_EXTRACTION", "EMBEDDING"]),
+            )
+        ):
+            stage.status = "COMPLETED"
+    assert not pipeline.process_profile_next()
+    assert analyzer.calls == []
