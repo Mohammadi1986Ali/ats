@@ -144,8 +144,8 @@ def monitor_live(ats):
     st.dataframe(pd.DataFrame(stage_breakdown(all_items)), hide_index=True,
                  width="stretch")
     st.caption(
-        "Embedding runs when enabled; profile, evidence, matching and scoring "
-        "are future phases."
+        "Embedding, profile extraction and automated evidence checks run when enabled. "
+        "Matching, scoring and HR review are future phases."
     )
     st.subheader("CV monitor")
     filter_col, search_col = st.columns([1, 2])
@@ -177,7 +177,10 @@ def monitor_live(ats):
                     st.write(f"Duration: {round(duration / 1000, 2)} s" if duration is not None
                              else "Duration: not available")
                     if message := detail.get(f"{stage}_error"):
-                        st.error(message)
+                        if status == "FAILED":
+                            st.error(message)
+                        else:
+                            st.warning(message)
                     elif status == "WAITING":
                         st.caption("Not running in the current application phase.")
     else:
