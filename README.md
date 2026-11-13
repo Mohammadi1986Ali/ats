@@ -496,3 +496,28 @@ Expect `PROFILE_EXTRACTION COMPLETED` in Pipeline Monitor when an incomplete
 reviewable fallback profile is saved. Inspect the profile's warnings; this is
 **not** evidence that a full AI extraction was successful. A stronger locally
 installed model is still recommended for full employment/education extraction.
+
+## One-click recovery and updates for Windows (no terminal required)
+
+After the upgraded `Start ATS.cmd` has been obtained locally once, opening it
+will safely check for fast-forward changes on `feature/ats-pipeline`, start
+PostgreSQL, run additive migrations, restart the ATS worker, and launch
+Streamlit. Git is never allowed to overwrite uncommitted local work; if a
+fast-forward is impossible, the launcher stops with a clear message.
+Local `.env`, CV uploads, PostgreSQL volumes and previous profile versions are
+preserved.
+
+On the first start of the upgraded worker, existing CV profile stages that
+failed specifically because of invalid/truncated model JSON are automatically
+requeued **once per recovery release**, even if the previous three-attempt
+limit was exhausted. The worker's existing OS lock prevents concurrent
+recovery. The local `data/.literal-cv-fallback-v1.done` marker prevents
+repeated restarts from triggering another expensive run. A later failure
+remains visible and is not automatically retried forever. Disconnected models,
+removed applications, missing embeddings and unrelated failures are not
+requeued.
+
+The existing `Start ATS.cmd` on a machine does not gain auto-update support
+until its newer GitHub version has been fetched **once** (e.g. with GitHub
+Desktop's Pull Origin button). After that, routine startup needs only a
+double-click; no PowerShell, retry commands, uploads or DB resets.
