@@ -439,3 +439,29 @@ uv run --no-sync python -m job_hire_ai.score_cli --vacancy-id 1 --document-id 2
 ```
 
 Run offline tests with `uv run --no-sync pytest tests/test_job_matching.py`.
+
+## Recovery for failed local CV profile extraction
+
+If the Pipeline Monitor shows `PROFILE_EXTRACTION FAILED` with "output
+truncated" or "invalid structured output" while local Ollama responds with
+HTTP 200, the CV's source text and embeddings do **not** need to be reuploaded.
+The extractor now reserves the entire configured JSON output budget, uses
+smaller source sections, and attempts bounded splitting on either truncation
+or schema validation errors. It does not parse partial JSON or fabricate
+missing CV facts.
+
+After pulling the latest branch and restarting `start-ats.ps1` (which
+migrates unchanged legacy default CV settings, without overwriting custom
+values), explicitly requeue only those failed CV IDs:
+
+```powershell
+uv run --no-sync python -m job_hire_ai.retry_profiles --document-ids 1 2 3
+```
+
+The background worker picks them up automatically. The retry command checks
+the application and embedding status, only retries `FAILED` profiles, and
+stops after three stage attempts. It preserves uploaded files, document
+text, embeddings, CV analysis history, and PostgreSQL tables. Larger CVs
+can still fail on a CPU-only 1B model; that failure remains visible rather
+than creating an unsupported profile. If unsuccessful again, inspect the
+stage's stored error and model metrics before changing model profiles.
