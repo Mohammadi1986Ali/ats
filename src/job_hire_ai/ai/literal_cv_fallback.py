@@ -25,6 +25,13 @@ KNOWN_TERMS = (
     "FIX", "SWIFT",
 )
 
+FAST_MODE_WARNING = (
+    "PARTIAL DETERMINISTIC EXTRACTION (FAST 1B MODE): the 1B model was not used "
+    "for structured CV analysis to avoid long CPU stalls. Only explicit "
+    "technology mentions were recorded; other qualifications are not extracted. "
+    "Human review of the original CV is required."
+)
+
 FALLBACK_WARNING = (
     "PARTIAL DETERMINISTIC EXTRACTION: the local language model could not "
     "produce valid complete JSON. Only literally observed technologies were "
@@ -33,7 +40,9 @@ FALLBACK_WARNING = (
 )
 
 
-def extract_literal_skills(segments: list[dict]) -> CVExtraction:
+def extract_literal_skills(
+    segments: list[dict], *, warning: str = FALLBACK_WARNING
+) -> CVExtraction:
     """Extract a *partial* explicitly labelled profile with genuine source quotes.
 
     No LLM output is consumed. Each quote is exactly the matched substring from
@@ -76,12 +85,15 @@ def extract_literal_skills(segments: list[dict]) -> CVExtraction:
                     }
                 else:
                     quote = {"source_excerpt": original, "source_reference": ref}
-                    if quote not in skills[key]["evidence"]:
+                    if (
+                        quote not in skills[key]["evidence"]
+                        and len(skills[key]["evidence"]) < 20
+                    ):
                         skills[key]["evidence"].append(quote)
                 break
     values = {section: [] for section in PROFILE_SECTIONS}
     values["technical_skills"] = list(skills.values())[:200]
-    values["extraction_warnings"] = [FALLBACK_WARNING]
+    values["extraction_warnings"] = [warning]
     if not skills:
         values["extraction_warnings"].append(
             "No technologies from the limited literal vocabulary were found. "
