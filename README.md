@@ -403,3 +403,39 @@ uv run --no-sync python -m job_hire_ai.match_cli --vacancy-id 1 --document-id 2
 
 Test offline with `uv run --no-sync pytest tests/test_job_matching.py`.
 `SCORING` and `HR_REVIEW` remain waiting; no automatic HR approvals are made.
+
+## Phase 3.7: explainable evidence coverage (not hiring suitability)
+
+After `MATCHING` completes, `SCORING` records an auditable **documentation
+coverage** snapshot. It uses only the HR-approved criterion percentages and
+the evidence states saved by Phase 3.6. The three reported buckets always
+sum to 100% of approved weights:
+
+- `documented_weight`: criteria with verified source-quoted evidence
+- `unverified_weight`: criteria with no direct evidence in the CV; **unknown,
+  not a judgment that the candidate lacks the skill**
+- `review_weight`: criteria that require explicit evidence review
+
+A criterion contributes its whole approved weight to exactly one bucket.
+There are no ML predictions, synthetic evidence, hidden partial-credit
+calculations, candidate ranking, automatic rejection, or hiring decisions.
+Phase 3.6 intentionally uses conservative literal matching; this coverage
+number is not a comparable measure of candidate competence or overall fit.
+
+The additive migration creates `candidate_score_snapshots` tied to the
+immutable approved criteria version, CV profile and matching result. Previous
+snapshots remain available for audit. Re-matching after new criteria approval
+automatically requeues the scoring stage. `HR_REVIEW` stays separate.
+
+With the standard Windows launcher, `ATS_SCORING_ENABLED=true` is configured
+automatically. For manual startup, enable that flag and all preceding stages,
+then restart the background worker. No database reset is necessary.
+
+To inspect already-persisted coverage (read-only):
+
+```powershell
+uv run --no-sync python -m job_hire_ai.score_cli --vacancy-id 1
+uv run --no-sync python -m job_hire_ai.score_cli --vacancy-id 1 --document-id 2
+```
+
+Run offline tests with `uv run --no-sync pytest tests/test_job_matching.py`.
