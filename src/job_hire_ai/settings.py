@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     max_file_mb: int = Field(default=10, ge=1, le=100)
     database_url_override: str | None = None
     embeddings_enabled: bool = False
+    profile_extraction_enabled: bool = False
     embedding_model: str = "nomic-embed-text"
     embedding_base_url: str = "http://127.0.0.1:11434"
 
