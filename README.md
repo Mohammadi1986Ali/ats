@@ -465,3 +465,34 @@ text, embeddings, CV analysis history, and PostgreSQL tables. Larger CVs
 can still fail on a CPU-only 1B model; that failure remains visible rather
 than creating an unsupported profile. If unsuccessful again, inspect the
 stage's stored error and model metrics before changing model profiles.
+
+## Recovery after repeated CV model JSON failure (Phase 3.4 robustness)
+
+Tiny local models such as `llama3.2:1b` can exhaust bounded split
+retries even when Ollama responds HTTP 200. After that specific failure,
+the application now has an explicit, visibly incomplete fallback:
+
+- It reads **only actual source CV segments** and recognizes literal
+  technology terms from a fixed vocabulary, with original source references.
+- Every fallback term is `UNCERTAIN` and the immutable profile records a
+  prominent `PARTIAL DETERMINISTIC EXTRACTION` warning. It never claims to
+  have extracted employment, education or unsupported qualifications.
+- These uncertain claims **cannot become positive match evidence or scoring
+  points**, and an HR reviewer must inspect the original CV. No model response
+  is forged or silently accepted.
+- Missing Ollama, timeouts and non-JSON-related errors **remain failures**.
+- Set `OLLAMA_CV_LITERAL_FALLBACK_ENABLED=false` to disable this mode.
+
+For previously failed documents (including those already at their three-stage
+retry limit), after pulling the new branch and restarting ATS, use the
+operator-authorized retry. This does **not** reupload CVs, reset PostgreSQL,
+or re-run completed text/embedding stages:
+
+```powershell
+uv run --no-sync python -m job_hire_ai.retry_profiles --document-ids 1 2 3 --allow-exhausted
+```
+
+Expect `PROFILE_EXTRACTION COMPLETED` in Pipeline Monitor when an incomplete
+reviewable fallback profile is saved. Inspect the profile's warnings; this is
+**not** evidence that a full AI extraction was successful. A stronger locally
+installed model is still recommended for full employment/education extraction.
