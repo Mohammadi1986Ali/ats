@@ -2,7 +2,11 @@
 
 from sqlalchemy import select
 
-from job_hire_ai.ai.literal_cv_fallback import FALLBACK_WARNING, extract_literal_skills
+from job_hire_ai.ai.literal_cv_fallback import (
+    FALLBACK_WARNING,
+    FAST_MODE_WARNING,
+    extract_literal_skills,
+)
 from job_hire_ai.ai.provider import ProviderError
 from job_hire_ai.database.models import CandidateDocument, DocumentPipelineStage
 from job_hire_ai.retry_profiles import requeue_profiles
@@ -115,3 +119,46 @@ def test_operator_can_requeue_exhausted_profile_without_resetting_embedding(ats,
         assert stages["PROFILE_EXTRACTION"].attempts == 0
         assert stages["PROFILE_EXTRACTION"].status == "PENDING"
         assert stages["EMBEDDING"].status == "COMPLETED"
+
+
+def test_fast_1b_mode_does_not_invoke_slow_model_at_all(ats, vacancy):
+    provider = mock_provider()
+    provider.analyze_cv.side_effect = AssertionError("1B model must not run in fast mode")
+    ats.cv_analysis.provider = provider
+    ats.cv_analysis.settings = ats.cv_analysis.settings.model_copy(
+        update={"model": "llama3.2:1b", "cv_fast_mode_1b": True}
+    )
+    assert ats.documents.upload_batch(
+        vacancy.id, [("cv.pdf", pdf_bytes("Java and Spring Boot experience."))]
+    )[0].success
+    document_id = ats.cv_analysis.list_documents(vacancy.id)[0]["Document"]
+    batch_id = ats.cv_analysis.create_batch(vacancy.id, [document_id])
+    ats.cv_analysis.process_batch(batch_id)
+    job = ats.cv_analysis.jobs(batch_id)[0]
+    assert job.status == "NEEDS_REVIEW"
+    assert job.runs[0].inference_options["extraction_mode"] == "literal-fast-1b"
+    assert job.runs[0].inference_options["metrics"]["model_calls"] == 0
+    provider.analyze_cv.assert_not_called()
+    profile = ats.profiles.list(document_id=document_id)[0]
+    assert FAST_MODE_WARNING in profile.warnings
+    assert all(
+        skill["claim_status"] == "UNCERTAIN"
+        for skill in profile.original_extraction["technical_skills"]
+    )
+    assert profile.original_extraction["employment_history"] == []
+
+
+def test_manual_1b_extraction_remains_available_when_fast_mode_disabled(ats, vacancy):
+    provider = mock_provider()
+    ats.cv_analysis.provider = provider
+    ats.cv_analysis.settings = ats.cv_analysis.settings.model_copy(
+        update={"model": "llama3.2:1b", "cv_fast_mode_1b": False}
+    )
+    assert ats.documents.upload_batch(
+        vacancy.id, [("cv.pdf", pdf_bytes("Java services experience."))]
+    )[0].success
+    document_id = ats.cv_analysis.list_documents(vacancy.id)[0]["Document"]
+    batch_id = ats.cv_analysis.create_batch(vacancy.id, [document_id])
+    ats.cv_analysis.process_batch(batch_id)
+    assert ats.cv_analysis.jobs(batch_id)[0].status in {"COMPLETED", "NEEDS_REVIEW"}
+    provider.analyze_cv.assert_called()
