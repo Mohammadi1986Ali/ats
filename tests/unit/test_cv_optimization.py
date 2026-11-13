@@ -114,8 +114,8 @@ def test_invalid_compact_data_never_passes_validation(wire):
 def test_incomplete_json_is_not_repaired_or_saved():
     invalid = response()
     invalid.message.content = '{"records":['
-    llm, client = provider([invalid])
-    with pytest.raises(ProviderError, match="invalid structured") as error:
+    llm, client = provider([invalid], cv_truncation_retries=0)
+    with pytest.raises(ProviderError, match="valid structured output") as error:
         llm.analyze_cv([source()])
     assert client.chat.call_count == error.value.metrics.model_calls == 1
 
