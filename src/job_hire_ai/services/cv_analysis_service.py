@@ -305,7 +305,7 @@ class CVAnalysisService:
             if (
                 self.settings.cv_fast_mode_1b
                 and self.settings.cv_literal_fallback_enabled
-                and self.settings.model == "llama3.2:1b"
+                and self.settings.model in {"llama3.2:1b", "qwen2.5:0.5b"}
             ):
                 extraction = extract_literal_skills(
                     [
