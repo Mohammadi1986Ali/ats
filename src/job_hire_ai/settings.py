@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     database_url_override: str | None = None
     embeddings_enabled: bool = False
     profile_extraction_enabled: bool = False
+    automatic_profile_fast_mode: bool = True
     evidence_validation_enabled: bool = False
     matching_enabled: bool = False
     scoring_enabled: bool = False
