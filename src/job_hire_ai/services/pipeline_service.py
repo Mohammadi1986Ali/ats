@@ -28,6 +28,7 @@ from job_hire_ai.services.embedding_service import (
     source_hash,
 )
 from job_hire_ai.services.evidence_validation_service import EvidenceValidationService
+from job_hire_ai.services.job_matching_service import JobMatchingService
 from job_hire_ai.text_extraction import EXTRACTOR_VERSION, ExtractedText, TextExtractor
 
 logger = logging.getLogger(__name__)
@@ -61,6 +62,7 @@ class PipelineService:
         embedding_model="nomic-embed-text", embedding_base_url="http://127.0.0.1:11434",
         embedder=None, profile_extraction_enabled=False, profile_analyzer=None,
         evidence_validation_enabled=False, evidence_validator=None,
+        matching_enabled=False, matcher=None,
     ):
         self.db, self.documents = db, documents
         self.data_dir = data_dir
@@ -74,6 +76,8 @@ class PipelineService:
         self.profile_analyzer = profile_analyzer
         self.evidence_validation_enabled = evidence_validation_enabled
         self.evidence_validator = evidence_validator or EvidenceValidationService(db)
+        self.matching_enabled = matching_enabled
+        self.matcher = matcher or JobMatchingService(db)
         self._jd_failed_hashes = set()
 
     def ensure_worker(self) -> None:
@@ -150,7 +154,9 @@ class PipelineService:
                 return True
             if self.profile_extraction_enabled and self.process_profile_next():
                 return True
-            return self.process_evidence_next() if self.evidence_validation_enabled else False
+            if self.evidence_validation_enabled and self.process_evidence_next():
+                return True
+            return self.process_matching_next() if self.matching_enabled else False
 
         started = time.perf_counter()
         error = None
@@ -432,6 +438,80 @@ class PipelineService:
                 stage.duration_ms = round((time.perf_counter() - started) * 1000)
         return True
 
+    def process_matching_next(self) -> bool:
+        """Match only against approved current job criteria after evidence audit.
+
+        Without an approved/current criteria snapshot, leave MATCHING waiting;
+        the worker will pick it up automatically once HR approves the job.
+        """
+        if not self.matching_enabled:
+            return False
+        with self.db.transaction() as session:
+            audit_stage = aliased(DocumentPipelineStage)
+            candidates = list(
+                session.execute(
+                    select(
+                        DocumentPipelineStage.id,
+                        DocumentPipelineStage.document_id,
+                        CandidateDocument.vacancy_id,
+                    )
+                    .join(
+                        audit_stage,
+                        audit_stage.document_id == DocumentPipelineStage.document_id,
+                    )
+                    .join(
+                        CandidateDocument,
+                        CandidateDocument.id == DocumentPipelineStage.document_id,
+                    )
+                    .join(JobApplication, CandidateDocument.application_id == JobApplication.id)
+                    .where(
+                        DocumentPipelineStage.stage == "MATCHING",
+                        DocumentPipelineStage.status.in_(["PENDING", "WAITING"]),
+                        audit_stage.stage == "EVIDENCE_VALIDATION",
+                        audit_stage.status == "COMPLETED",
+                        JobApplication.status == "Uploaded",
+                    )
+                    .order_by(DocumentPipelineStage.id)
+                )
+            )
+        for stage_id, document_id, vacancy_id in candidates:
+            if not self.matcher.ready(vacancy_id):
+                continue
+            with self.db.transaction() as session:
+                claimed = session.execute(
+                    update(DocumentPipelineStage)
+                    .where(
+                        DocumentPipelineStage.id == stage_id,
+                        DocumentPipelineStage.status.in_(["PENDING", "WAITING"]),
+                    )
+                    .values(
+                        status="RUNNING", started_at=now(), completed_at=None,
+                        error_summary=None, attempts=DocumentPipelineStage.attempts + 1,
+                    )
+                ).rowcount
+            if not claimed:
+                return True
+
+            started = time.perf_counter()
+            error = None
+            try:
+                self.matcher.match_document(document_id)
+            except ATSError as exc:
+                error = str(exc)[:500]
+            except Exception:
+                logger.exception("Unexpected job matching failure for document %s", document_id)
+                error = "Unexpected job matching failure; inspect the worker log."
+
+            with self.db.transaction() as session:
+                stage = session.get(DocumentPipelineStage, stage_id)
+                if stage is not None:
+                    stage.status = "FAILED" if error else "COMPLETED"
+                    stage.error_summary = error
+                    stage.completed_at = now()
+                    stage.duration_ms = round((time.perf_counter() - started) * 1000)
+            return True
+        return False
+
     def _index_next_jd(self) -> bool:
         """Refresh changed job descriptions without blocking CV processing."""
         with self.db.transaction() as session:
@@ -474,6 +554,7 @@ class PipelineService:
                         + (["EMBEDDING"] if self.embeddings_enabled else [])
                         + (["PROFILE_EXTRACTION"] if self.profile_extraction_enabled else [])
                         + (["EVIDENCE_VALIDATION"] if self.evidence_validation_enabled else [])
+                        + (["MATCHING"] if self.matching_enabled else [])
                     ),
                     DocumentPipelineStage.status == "RUNNING",
                 )
