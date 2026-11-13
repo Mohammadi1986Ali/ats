@@ -5,7 +5,7 @@ from sqlalchemy import select
 
 from job_hire_ai.database.models import CandidateDocument, JobApplication
 from job_hire_ai.schemas import VacancyInput
-from job_hire_ai.services.embedding_service import Chunk, DIMENSIONS, EmbeddingService
+from job_hire_ai.services.embedding_service import DIMENSIONS, Chunk, EmbeddingService
 from job_hire_ai.services.semantic_search_service import SemanticSearchService
 
 
