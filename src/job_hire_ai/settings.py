@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     database_url_override: str | None = None
     embeddings_enabled: bool = False
     profile_extraction_enabled: bool = False
+    evidence_validation_enabled: bool = False
     embedding_model: str = "nomic-embed-text"
     embedding_base_url: str = "http://127.0.0.1:11434"
 
