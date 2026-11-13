@@ -42,6 +42,7 @@ def main() -> None:
         embedding_base_url=settings.embedding_base_url,
         profile_extraction_enabled=settings.profile_extraction_enabled,
         profile_analyzer=analyzer,
+        evidence_validation_enabled=settings.evidence_validation_enabled,
     )
     try:
         with worker_lock(settings.directory / "pipeline-text-worker.lock"):
