@@ -296,7 +296,7 @@ class PipelineService:
             stage = session.get(DocumentPipelineStage, stage_id)
             if stage is not None:
                 stage.status = "FAILED" if error else "COMPLETED"
-                stage.error_summary = error
+                stage.error_summary = error or review_note
                 stage.completed_at = now()
                 stage.duration_ms = round((time.perf_counter() - started) * 1000)
         return True
@@ -350,6 +350,7 @@ class PipelineService:
             return False
         started = time.perf_counter()
         error = None
+        review_note = None
         try:
             # CVAnalysisService already enforces strict schemas, real evidence
             # references, bounded Ollama retries, and transactional profile saving.
@@ -359,6 +360,11 @@ class PipelineService:
             if job.status not in {"COMPLETED", "NEEDS_REVIEW"}:
                 raise ATSError(
                     job.error_summary or "CV profile extraction failed; inspect the analysis run."
+                )
+            if job.status == "NEEDS_REVIEW":
+                review_note = (
+                    "A partial or uncertain CV profile was saved. "
+                    "Inspect original source evidence; human review required."
                 )
         except ATSError as exc:
             error = str(exc)[:500]
