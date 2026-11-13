@@ -8,6 +8,7 @@ from job_hire_ai.ai.prompts import messages
 from job_hire_ai.ai.provider import (
     AnalysisOutput,
     InferenceMetrics,
+    InvalidStructuredResponse,
     ModelStatus,
     ProviderError,
     TruncatedResponse,
@@ -88,10 +89,10 @@ class OllamaProvider:
                         f"\nThis is a {section} section. Extract all its {section} records. "
                         "Keep this kind and preserve stated essential fields and technologies."
                     )
+                # Do not artificially cap tokens at 512 + input characters:
+                # structured JSON can be far longer than the CV source excerpt.
                 output_limit = min(
-                    self.settings.num_predict,
-                    self.settings.cv_max_output_tokens,
-                    max(256, 512 + sum(len(s["text"]) for s in part)),
+                    self.settings.num_predict, self.settings.cv_max_output_tokens
                 )
                 response = self.generate_structured(prompt, schema, budget, output_limit)
                 metrics.add(response.metrics)
@@ -106,13 +107,14 @@ class OllamaProvider:
                     metrics.truncated_responses += 1
                     raise TruncatedResponse("CV response reached its record/detail limit.")
                 return wire.profile(refs)
-            except TruncatedResponse as exc:
+            except (TruncatedResponse, InvalidStructuredResponse) as exc:
                 if exc.metrics:
                     metrics.add(exc.metrics)
                 if recoveries <= 0:
                     raise ProviderError(
-                        "CV output was truncated after bounded retries. Use smaller sections or "
-                        "increase OLLAMA_NUM_PREDICT within context. No partial profile saved."
+                        "CV extraction could not produce complete valid structured output "
+                        "within bounded source-splitting retries. No partial profile saved. "
+                        "Try smaller CV sections or a more capable local evaluation model."
                     ) from None
                 recoveries -= 1
                 parts = split_segments(part)
@@ -216,9 +218,9 @@ class OllamaProvider:
                     metrics,
                 )
             except ValidationError:
-                raise ProviderError(
+                raise InvalidStructuredResponse(
                     "The model returned invalid structured output. No extraction was saved. "
-                    "Retry analysis or inspect the source document."
+                    "Retry with smaller CV sections or a different local model."
                 ) from None
             except (httpx.TimeoutException, httpx.ConnectError, ConnectionError):
                 metrics.input_tokens = metrics.output_tokens = None
