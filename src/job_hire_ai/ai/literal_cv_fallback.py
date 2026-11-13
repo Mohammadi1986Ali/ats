@@ -68,8 +68,11 @@ def extract_literal_skills(segments: list[dict]) -> CVExtraction:
                             "source_excerpt": original,
                             "source_reference": ref,
                         }],
-                        "claim_status": "SUPPORTED",
-                        "uncertainty": "",
+                        "claim_status": "UNCERTAIN",
+                        "uncertainty": (
+                            "Literal technology mention only; role, experience, "
+                            "proficiency and context require human review."
+                        ),
                     }
                 else:
                     quote = {"source_excerpt": original, "source_reference": ref}
