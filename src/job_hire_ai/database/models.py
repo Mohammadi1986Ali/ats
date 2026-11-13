@@ -346,6 +346,35 @@ class ProfileReviewEvent(Base):
     profile: Mapped[CandidateProfile] = relationship(back_populates="reviews")
 
 
+
+class JobMatchResult(Base):
+    """Versioned, non-scoring criterion-evidence matches for HR inspection."""
+
+    __tablename__ = "job_match_results"
+    __table_args__ = (
+        UniqueConstraint(
+            "document_id", "configuration_id", "profile_id",
+            name="uq_job_match_snapshot",
+        ),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    document_id: Mapped[int] = mapped_column(
+        ForeignKey("candidate_documents.id", ondelete="CASCADE"), index=True
+    )
+    vacancy_id: Mapped[int] = mapped_column(
+        ForeignKey("vacancies.id", ondelete="CASCADE"), index=True
+    )
+    configuration_id: Mapped[int] = mapped_column(
+        ForeignKey("criteria_configurations.id"), index=True
+    )
+    profile_id: Mapped[int] = mapped_column(
+        ForeignKey("candidate_profiles.id", ondelete="CASCADE"), index=True
+    )
+    criteria_results: Mapped[list] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(default=now)
+
+
+
 class DocumentPipelineStage(Base):
     """Durable, application-specific stage state; one stage per uploaded document."""
 
