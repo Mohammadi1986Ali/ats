@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from sqlalchemy import select
 
-from job_hire_ai.database.models import CandidateDocument, DocumentPipelineStage
+from job_hire_ai.database.models import CandidateDocument, DocumentPipelineStage, JobApplication
 from job_hire_ai.services.pipeline_service import PipelineService
 
 
