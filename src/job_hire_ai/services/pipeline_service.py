@@ -27,6 +27,7 @@ from job_hire_ai.services.embedding_service import (
     chunk_jd,
     source_hash,
 )
+from job_hire_ai.services.evidence_validation_service import EvidenceValidationService
 from job_hire_ai.text_extraction import EXTRACTOR_VERSION, ExtractedText, TextExtractor
 
 logger = logging.getLogger(__name__)
@@ -59,6 +60,7 @@ class PipelineService:
         self, db, documents, data_dir: Path, *, embeddings_enabled=False,
         embedding_model="nomic-embed-text", embedding_base_url="http://127.0.0.1:11434",
         embedder=None, profile_extraction_enabled=False, profile_analyzer=None,
+        evidence_validation_enabled=False, evidence_validator=None,
     ):
         self.db, self.documents = db, documents
         self.data_dir = data_dir
@@ -70,6 +72,8 @@ class PipelineService:
         )
         self.profile_extraction_enabled = profile_extraction_enabled
         self.profile_analyzer = profile_analyzer
+        self.evidence_validation_enabled = evidence_validation_enabled
+        self.evidence_validator = evidence_validator or EvidenceValidationService(db)
         self._jd_failed_hashes = set()
 
     def ensure_worker(self) -> None:
@@ -144,7 +148,9 @@ class PipelineService:
         if stage_id is None:
             if self.embeddings_enabled and self.process_embedding_next():
                 return True
-            return self.process_profile_next() if self.profile_extraction_enabled else False
+            if self.profile_extraction_enabled and self.process_profile_next():
+                return True
+            return self.process_evidence_next() if self.evidence_validation_enabled else False
 
         started = time.perf_counter()
         error = None
@@ -358,6 +364,72 @@ class PipelineService:
                 stage.duration_ms = round((time.perf_counter() - started) * 1000)
         return True
 
+    def process_evidence_next(self) -> bool:
+        """Audit claims after a persisted profile exists; no automatic HR approval."""
+        if not self.evidence_validation_enabled:
+            return False
+        with self.db.transaction() as session:
+            profile_stage = aliased(DocumentPipelineStage)
+            stage_id = session.scalar(
+                select(DocumentPipelineStage.id)
+                .join(
+                    profile_stage,
+                    profile_stage.document_id == DocumentPipelineStage.document_id,
+                )
+                .join(CandidateDocument, CandidateDocument.id == DocumentPipelineStage.document_id)
+                .join(JobApplication, CandidateDocument.application_id == JobApplication.id)
+                .where(
+                    DocumentPipelineStage.stage == "EVIDENCE_VALIDATION",
+                    DocumentPipelineStage.status.in_(["PENDING", "WAITING"]),
+                    profile_stage.stage == "PROFILE_EXTRACTION",
+                    profile_stage.status == "COMPLETED",
+                    JobApplication.status == "Uploaded",
+                )
+                .order_by(DocumentPipelineStage.id)
+                .limit(1)
+            )
+            if stage_id is not None:
+                claimed = session.execute(
+                    update(DocumentPipelineStage)
+                    .where(
+                        DocumentPipelineStage.id == stage_id,
+                        DocumentPipelineStage.status.in_(["PENDING", "WAITING"]),
+                    )
+                    .values(
+                        status="RUNNING", started_at=now(), completed_at=None,
+                        error_summary=None, attempts=DocumentPipelineStage.attempts + 1,
+                    )
+                ).rowcount
+                if not claimed:
+                    return True
+                document_id = session.get(DocumentPipelineStage, stage_id).document_id
+        if stage_id is None:
+            return False
+
+        started = time.perf_counter()
+        error = None
+        issues = 0
+        try:
+            audit = self.evidence_validator.validate_document(document_id)
+            issues = len(audit.issues)
+        except ATSError as exc:
+            error = str(exc)[:500]
+        except Exception:
+            logger.exception("Unexpected evidence audit error for document %s", document_id)
+            error = "Unexpected evidence-validation failure; inspect the worker log."
+        with self.db.transaction() as session:
+            stage = session.get(DocumentPipelineStage, stage_id)
+            if stage is not None:
+                stage.status = "FAILED" if error else "COMPLETED"
+                stage.error_summary = (
+                    error if error else
+                    f"Evidence audit found {issues} issue(s); human review required."
+                    if issues else None
+                )
+                stage.completed_at = now()
+                stage.duration_ms = round((time.perf_counter() - started) * 1000)
+        return True
+
     def _index_next_jd(self) -> bool:
         """Refresh changed job descriptions without blocking CV processing."""
         with self.db.transaction() as session:
@@ -399,6 +471,7 @@ class PipelineService:
                         ["TEXT_EXTRACTION"]
                         + (["EMBEDDING"] if self.embeddings_enabled else [])
                         + (["PROFILE_EXTRACTION"] if self.profile_extraction_enabled else [])
+                        + (["EVIDENCE_VALIDATION"] if self.evidence_validation_enabled else [])
                     ),
                     DocumentPipelineStage.status == "RUNNING",
                 )
