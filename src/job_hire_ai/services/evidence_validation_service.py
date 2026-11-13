@@ -98,13 +98,17 @@ class EvidenceValidationService:
                         candidates = [
                             item for item in remaining
                             if item.source_excerpt == quote.source_excerpt
-                            and item.source_reference == quote.source_reference
+                            and (
+                                quote.source_reference is None
+                                or item.source_reference == quote.source_reference
+                            )
                         ]
                         if not candidates:
                             raise ATSError("Evidence quote does not match the stored profile.")
                         row = candidates[0]
                         remaining.remove(row)
                         checked = verify_quote(quote, source, document_id)
+                        row.source_reference = checked.source_reference
                         row.verification_status = checked.verification_status
                         row.page_number = checked.page_number
                         row.character_start = checked.character_start
