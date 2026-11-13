@@ -8,6 +8,22 @@ sequential analysis batches, versioned candidate profiles and auditable HR corre
 There is no candidate matching, candidate scoring, ranking, automated rejection or OCR.
 Existing vacancy, application, CV and job-criteria workflows are preserved.
 
+## One-click Windows launch (PostgreSQL + local embeddings)
+
+After updating `feature/ats-pipeline`, start Docker Desktop and Ollama, then
+**double-click `Start ATS.cmd`**. On the first run only, enter the password
+you already chose when creating the local PostgreSQL container. The launcher
+saves configuration in the local Git-ignored `.env` file, starts the database,
+installs the optional database driver if needed, runs additive Alembic
+migrations and launches Streamlit. On later runs, double-click the same file.
+No PowerShell environment variables or manual worker command are required.
+
+The launcher never deletes SQLite or PostgreSQL data. If PostgreSQL fails to
+connect, it stops with an error instead of silently falling back to SQLite.
+If Docker Desktop or Ollama isn't running, start the respective local service.
+Do not commit or share `.env`. The initial launch has not been verified on
+every Windows configuration; report any error displayed in the launcher window.
+
 ## Windows installation
 
 Install Python 3.12+ and [uv](https://docs.astral.sh/uv/getting-started/installation/).
