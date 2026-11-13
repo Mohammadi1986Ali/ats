@@ -58,8 +58,14 @@ def test_stage_breakdown_marks_future_stages_inactive():
     assert stages[0]["Availability"] == "Active"
     assert stages[1]["Waiting"] == 2
     assert stages[1]["Availability"] == "Not enabled"
-    assert all(row["Waiting"] == 2 and row["Availability"] == "Not implemented"
-               for row in stages[2:])
+    assert all(
+        row["Waiting"] == 2 and row["Availability"] == "Waiting for prior stage"
+        for row in stages[2:4]
+    )
+    assert all(
+        row["Waiting"] == 2 and row["Availability"] == "Not implemented"
+        for row in stages[4:]
+    )
 
 
 def test_document_filter_and_failure_log_show_real_stage():
