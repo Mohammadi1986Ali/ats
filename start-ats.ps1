@@ -133,6 +133,21 @@ try {
     Set-Config $envPath "ATS_EVIDENCE_VALIDATION_ENABLED" "true"
     Set-Config $envPath "ATS_MATCHING_ENABLED" "true"
     Set-Config $envPath "ATS_SCORING_ENABLED" "true"
+    # Upgrade only unchanged legacy extraction defaults. Preserve any user-
+    # customized model profile settings and the existing database/credentials.
+    $cvDefaults = @(
+        @("OLLAMA_CV_CHUNK_CHARS", "2400", "1200"),
+        @("OLLAMA_CV_TRUNCATION_RETRIES", "2", "4"),
+        @("OLLAMA_CV_MAX_MODEL_CALLS", "16", "32"),
+        @("OLLAMA_CV_MAX_OUTPUT_TOKENS", "1536", "3072")
+    )
+    foreach ($item in $cvDefaults) {
+        if ($config.ContainsKey($item[0]) -and $config[$item[0]] -eq $item[1]) {
+            Set-Config $envPath $item[0] $item[2]
+            [Environment]::SetEnvironmentVariable($item[0], $item[2], "Process")
+        }
+    }
+
     $env:ATS_EMBEDDINGS_ENABLED = "true"
     $env:ATS_EMBEDDING_MODEL = "nomic-embed-text"
     $env:ATS_EMBEDDING_BASE_URL = "http://127.0.0.1:11434"
