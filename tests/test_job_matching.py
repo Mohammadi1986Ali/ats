@@ -1,5 +1,8 @@
 """Phase 3.6: deterministic, evidence-grounded matching; no AI-generated verdicts."""
 
+from datetime import UTC, datetime
+
+import pytest
 from sqlalchemy import select
 
 from job_hire_ai.ai.cv_schemas import PROFILE_SECTIONS, EvidenceQuote
@@ -17,6 +20,7 @@ from job_hire_ai.database.models import (
     JobCriterion,
     JobMatchResult,
 )
+from job_hire_ai.errors import ATSError
 from job_hire_ai.services.criteria_service import description_hash
 from job_hire_ai.services.evidence_service import verify_quote
 from job_hire_ai.services.job_matching_service import JobMatchingService
@@ -89,7 +93,7 @@ def approve_criteria(ats, vacancy, *, names=("Java", "Python")):
             vacancy_id=vacancy.id, version=1, status="APPROVED",
             job_description_hash=description_hash(vacancy.description),
             job_description_snapshot=vacancy.description,
-            approved_at=__import__("datetime").datetime.now(__import__("datetime").UTC),
+            approved_at=datetime.now(UTC),
             revision=1,
         )
         session.add(configuration)
@@ -183,10 +187,5 @@ def test_removed_application_has_no_matching_result(ats, vacancy, pdf):
         session.get(JobApplication, document.application_id).status = "Removed"
     matching = JobMatchingService(ats.db)
     assert matching.list_for_vacancy(vacancy.id) == []
-    from job_hire_ai.errors import ATSError
-
-    try:
+    with pytest.raises(ATSError, match="Removed applications"):
         matching.match_document(document_id)
-        assert False, "Removed application was matched"
-    except ATSError:
-        pass
