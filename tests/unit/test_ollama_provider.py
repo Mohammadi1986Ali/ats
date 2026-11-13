@@ -31,7 +31,10 @@ def client():
 
 
 def provider(client, **kwargs):
-    return OllamaProvider(OllamaSettings(_env_file=None, **kwargs), Mock(return_value=client))
+    return OllamaProvider(
+        OllamaSettings(_env_file=None, model="llama3.2:1b", **kwargs),
+        Mock(return_value=client),
+    )
 
 
 def test_structured_request_and_cpu_settings(client):
@@ -164,9 +167,10 @@ def test_timeout_aliases_and_constructor(monkeypatch):
 
 def test_requested_small_model_defaults():
     settings = OllamaSettings(_env_file=None)
-    assert settings.model == "llama3.2:1b"
+    assert settings.model == "qwen2.5:0.5b"
     assert settings.num_ctx == 8192 and settings.num_predict == 4096
-    assert settings.temperature == 0 and settings.timeout_seconds == 600
+    assert settings.temperature == 0 and settings.timeout_seconds == 120
+    assert settings.num_thread == 2 and settings.retries == 0
 
 
 def test_prompt_separates_untrusted_input():
