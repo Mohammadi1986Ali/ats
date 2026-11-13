@@ -245,3 +245,23 @@ def test_long_document_chunks_keep_headings_with_their_following_section():
         " ".join(unit["text"] for chunk in chunks for unit in chunk).split()
         == " ".join(texts).split()
     )
+
+
+def test_invalid_complete_json_recovers_from_smaller_source_sections():
+    invalid = response({"records": [{"kind": "skill", "original_wording": "Java"}]})
+    llm, client = provider([
+        invalid, response(payload("Java")), response(payload("Python")),
+    ], cv_truncation_retries=2)
+    result = llm.analyze_cv([
+        source("Java", "p1"), source("Python", "p2", kind="heading"),
+    ])
+    assert [row.name for row in result.extraction.technical_skills] == [
+        "Java", "Python",
+    ]
+    assert client.chat.call_count == result.metrics.model_calls == 3
+
+
+def test_cv_generation_reserves_full_configured_json_budget():
+    llm, client = provider([response()], cv_max_output_tokens=3072)
+    llm.analyze_cv([source("Java")])
+    assert client.chat.call_args.kwargs["options"]["num_predict"] == 3072
