@@ -27,10 +27,11 @@ class EvidenceAudit:
     claims_checked: int
     quotes_checked: int
     issues: tuple[str, ...]
+    review_required: bool
 
     @property
     def needs_review(self) -> bool:
-        return bool(self.issues)
+        return self.review_required
 
 
 class EvidenceValidationService:
@@ -134,5 +135,6 @@ class EvidenceValidationService:
             if profile.warnings:
                 profile.analysis_status = "NEEDS_REVIEW"
             return EvidenceAudit(
-                profile.id, claim_count, quote_count, tuple(issues)
+                profile.id, claim_count, quote_count, tuple(issues),
+                profile.analysis_status == "NEEDS_REVIEW",
             )
