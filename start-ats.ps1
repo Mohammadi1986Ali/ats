@@ -75,7 +75,7 @@ try {
     $password = $config["ATS_POSTGRES_PASSWORD"]
     if ([string]::IsNullOrWhiteSpace($password) -and $config["ATS_DATABASE_URL_OVERRIDE"]) {
         try {
-            $savedUri = [uri]($config["ATS_DATABASE_URL_OVERRIDE"] -replace '^postgresql\\+psycopg:', 'postgresql:')
+            $savedUri = [uri]($config["ATS_DATABASE_URL_OVERRIDE"] -replace '^postgresql\+psycopg:', 'postgresql:')
             if ($savedUri.UserInfo -match '^ats:(.*)$') {
                 $password = [uri]::UnescapeDataString($matches[1])
             }
@@ -91,7 +91,7 @@ try {
             finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
         }
         if ([string]::IsNullOrWhiteSpace($password)) { Fail "Password cannot be empty." }
-        if ($password -match '[\\$#"\x60\\r\\n]') {
+        if ($password -match '[#$"\x60]' -or $password.Contains([char]10) -or $password.Contains([char]13)) {
             Fail "Password contains characters requiring manual .env escaping. Existing settings were not changed."
         }
         $encoded = [uri]::EscapeDataString($password)
