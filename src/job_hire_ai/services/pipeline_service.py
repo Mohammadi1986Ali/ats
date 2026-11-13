@@ -510,7 +510,7 @@ class PipelineService:
                     stage.completed_at = now()
                     stage.duration_ms = round((time.perf_counter() - started) * 1000)
             return True
-        return False
+        return self.matcher.requeue_stale()
 
     def _index_next_jd(self) -> bool:
         """Refresh changed job descriptions without blocking CV processing."""
