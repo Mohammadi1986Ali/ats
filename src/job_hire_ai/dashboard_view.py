@@ -121,7 +121,7 @@ def stage_breakdown(items: list[dict]) -> list[dict]:
                 "Availability": (
                     "Not implemented" if stage in FUTURE_STAGES
                     else "Waiting for prior stage"
-                    if stage in {"PROFILE_EXTRACTION", "EVIDENCE_VALIDATION"}
+                    if stage in {"PROFILE_EXTRACTION", "EVIDENCE_VALIDATION", "MATCHING"}
                     and statuses["WAITING"] == len(items)
                     else "Not enabled" if stage == "EMBEDDING"
                     and statuses["WAITING"] == len(items) else "Active"
