@@ -133,6 +133,37 @@ try {
     Set-Config $envPath "ATS_EVIDENCE_VALIDATION_ENABLED" "true"
     Set-Config $envPath "ATS_MATCHING_ENABLED" "true"
     Set-Config $envPath "ATS_SCORING_ENABLED" "true"
+
+    # Upgrade only known legacy defaults. Preserve customized model choices.
+    $lightweightDefaults = @(
+        @("OLLAMA_MODEL", "llama3.2:1b", "qwen2.5:0.5b"),
+        @("OLLAMA_NUM_THREAD", "8", "2"),
+        @("OLLAMA_TIMEOUT", "600", "120"),
+        @("OLLAMA_RETRIES", "1", "0")
+    )
+    foreach ($item in $lightweightDefaults) {
+        if (-not $config.ContainsKey($item[0]) -or $config[$item[0]] -eq $item[1]) {
+            Set-Config $envPath $item[0] $item[2]
+            [Environment]::SetEnvironmentVariable($item[0], $item[2], "Process")
+        }
+    }
+    # Streamlit's model settings and the background worker both read .env.
+    # Never trigger a download for a user-selected nondefault model.
+    $modelToUse = (Read-Config $envPath)["OLLAMA_MODEL"]
+    if ($modelToUse -eq "qwen2.5:0.5b") {
+        if (-not (Get-Command ollama -ErrorAction SilentlyContinue)) {
+            Fail "Ollama executable is missing. Start/install Ollama before opening ATS."
+        }
+        ollama show qwen2.5:0.5b 2>$null | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "Downloading the small qwen2.5:0.5b model (one time only)..." -ForegroundColor Cyan
+            ollama pull qwen2.5:0.5b
+            if ($LASTEXITCODE -ne 0) {
+                Fail "Could not install lightweight Ollama model. Existing data is unchanged."
+            }
+        }
+    }
+
     # Upgrade only unchanged legacy extraction defaults. Preserve any user-
     # customized model profile settings and the existing database/credentials.
     $cvDefaults = @(
