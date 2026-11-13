@@ -22,7 +22,7 @@ LABELS = {
     "SCORING": "Scoring",
     "HR_REVIEW": "HR review",
 }
-FUTURE_STAGES = set(STAGES[4:])
+FUTURE_STAGES = set(STAGES[5:])
 STATUS_TEXT = {
     "PENDING": "Queued",
     "RUNNING": "Running",
