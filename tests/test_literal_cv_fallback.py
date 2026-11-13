@@ -5,9 +5,9 @@ from sqlalchemy import select
 from job_hire_ai.ai.literal_cv_fallback import FALLBACK_WARNING, extract_literal_skills
 from job_hire_ai.ai.provider import ProviderError
 from job_hire_ai.database.models import CandidateDocument, DocumentPipelineStage
+from job_hire_ai.retry_profiles import requeue_profiles
 from job_hire_ai.services.evidence_service import verify_quote
 from job_hire_ai.text_extraction import ExtractedText, TextSegment
-from job_hire_ai.retry_profiles import requeue_profiles
 from tests.cv_fixtures import mock_provider, pdf_bytes
 
 
