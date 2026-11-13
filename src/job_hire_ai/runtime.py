@@ -10,6 +10,7 @@ from job_hire_ai.services.cv_analysis_service import CVAnalysisService
 from job_hire_ai.services.dashboard_service import DashboardService
 from job_hire_ai.services.document_service import DocumentService
 from job_hire_ai.services.embedding_service import LocalEmbedder
+from job_hire_ai.services.job_matching_service import JobMatchingService
 from job_hire_ai.services.pipeline_service import PipelineService
 from job_hire_ai.services.semantic_search_service import SemanticSearchService
 from job_hire_ai.services.vacancy_service import VacancyService
@@ -35,6 +36,7 @@ class Runtime:
         self.semantic_search = SemanticSearchService(
             self.db, LocalEmbedder(settings.embedding_base_url, settings.embedding_model),
         )
+        self.job_matching = JobMatchingService(self.db)
         self.dashboard = DashboardService(self.db)
         self.criteria = CriteriaService(self.db)
         self.ollama_settings = OllamaSettings()
