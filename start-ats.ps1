@@ -131,11 +131,13 @@ try {
     Set-Config $envPath "ATS_EMBEDDING_BASE_URL" "http://127.0.0.1:11434"
     Set-Config $envPath "ATS_PROFILE_EXTRACTION_ENABLED" "true"
     Set-Config $envPath "ATS_EVIDENCE_VALIDATION_ENABLED" "true"
+    Set-Config $envPath "ATS_MATCHING_ENABLED" "true"
     $env:ATS_EMBEDDINGS_ENABLED = "true"
     $env:ATS_EMBEDDING_MODEL = "nomic-embed-text"
     $env:ATS_EMBEDDING_BASE_URL = "http://127.0.0.1:11434"
     $env:ATS_PROFILE_EXTRACTION_ENABLED = "true"
     $env:ATS_EVIDENCE_VALIDATION_ENABLED = "true"
+    $env:ATS_MATCHING_ENABLED = "true"
 
     Write-Host "Checking database schema..." -ForegroundColor Cyan
     uv run --no-sync alembic upgrade head
