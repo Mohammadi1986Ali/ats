@@ -42,7 +42,10 @@ def main() -> None:
         if not settings.embeddings_enabled:
             raise ATSError("Automatic profile extraction requires ATS_EMBEDDINGS_ENABLED=true.")
         model_settings = OllamaSettings()
-        if model_settings.model in {"llama3.2:1b", "qwen2.5:0.5b"} and settings.automatic_profile_fast_mode:
+        if (
+            model_settings.model in {"llama3.2:1b", "qwen2.5:0.5b"}
+            and settings.automatic_profile_fast_mode
+        ):
             model_settings = model_settings.model_copy(update={"cv_fast_mode_1b": True})
         analyzer = CVAnalysisService(
             db, documents, OllamaProvider(model_settings), model_settings,
