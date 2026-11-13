@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from sqlalchemy import text
 
 from job_hire_ai.errors import ATSError
-from job_hire_ai.services.embedding_service import CHUNKER_VERSION, DIMENSIONS
+from job_hire_ai.services.embedding_service import CHUNKER_VERSION, DIMENSIONS, source_hash
 
 
 @dataclass(frozen=True)
@@ -91,6 +91,16 @@ class SemanticSearchService:
             )
         """
         with self.db.transaction() as session:
+            if source_type == "JD":
+                # Avoid reporting stale JD passages if the job description changed.
+                current_description = session.scalar(
+                    text("SELECT description FROM vacancies WHERE id=:id"),
+                    {"id": vacancy_id},
+                )
+                if current_description is None:
+                    return []
+                parameters["current_hash"] = source_hash(current_description)
+                filter_clause += " AND e.source_hash = :current_hash"
             postgres = session.bind.dialect.name == "postgresql"
             if postgres:
                 # Explicit cast avoids relying on driver registration of pgvector.
