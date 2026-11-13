@@ -299,3 +299,39 @@ separate pipeline phases. Query text goes only to the configured local Ollama
 embedding endpoint.
 
 Run offline service tests with `uv run pytest tests/test_semantic_search.py`.
+
+## Phase 3.4: automatic, source-backed candidate profiles
+
+The background pipeline can now process uploaded CVs in order:
+
+`TEXT_EXTRACTION → EMBEDDING → PROFILE_EXTRACTION`
+
+After embeddings complete, the worker invokes the existing bounded local Ollama
+CV analysis implementation. It saves structured employment, technical skills,
+education, certifications, projects, languages and other job-relevant fields
+through the existing versioned `candidate_profiles` tables. The extractor
+must return a validated schema, and source quotes are checked against the
+actual extracted text; missing/ambiguous evidence is flagged as
+`NEEDS_REVIEW`, never silently accepted.
+
+For manual Streamlit launches, set `ATS_PROFILE_EXTRACTION_ENABLED=true` in
+your ignored local `.env`, alongside `ATS_EMBEDDINGS_ENABLED=true`, and
+restart the Streamlit server **and any previously detached pipeline worker**.
+`Start ATS.cmd` enables profile extraction by default. A CPU-only local
+model can take substantially longer than embedding; monitor the recorded
+`PROFILE_EXTRACTION` stage and review the worker log rather than starting
+another worker. On a model/validation failure the stage is marked `FAILED`,
+with no fabricated profile. A repeatedly interrupted stage is bounded by the
+existing retry limit.
+
+The separate `EVIDENCE_VALIDATION`, `MATCHING`, `SCORING`, and `HR_REVIEW`
+pipeline stages remain waiting; profile completion does **not** imply
+human approval or candidate suitability. Existing manual CV analysis workflows
+and review/correction history are preserved. This phase requires no new
+Alembic schema migration.
+
+Run offline stage-orchestration tests with:
+
+```powershell
+uv run --no-sync pytest tests/test_automatic_profiles.py
+```
