@@ -102,16 +102,12 @@ try {
         docker compose -f "compose.postgres.yml" up -d
         if ($LASTEXITCODE -ne 0) { Fail "PostgreSQL could not start. Existing data was not reset." }
 
-        # Verify real TCP authentication rather than trusting docker health checks;
-        # the latter do not prove that the configured password matches the volume.
-        $check = "import os,psycopg; c=psycopg.connect(host='127.0.0.1',port=5433,dbname='job_hire_ai',user='ats',password=os.environ['ATS_POSTGRES_PASSWORD'],connect_timeout=5); c.close()"
-        # Windows PowerShell 5.1 turns native stderr into a terminating
-        # NativeCommandError when ErrorActionPreference is Stop. Suppress only
-        # this expected failed-authentication probe, not launcher failures.
+        # A new Postgres volume needs time to initialize; a connection refusal
+        # is not the same as an incorrect password.
         $oldPreference = $ErrorActionPreference
         try {
             $ErrorActionPreference = "Continue"
-            uv run --no-sync python -c $check 2>$null | Out-Null
+            uv run --no-sync python scripts/check_postgres.py 2>&1 | Out-Null
             $checkExit = $LASTEXITCODE
         } finally {
             $ErrorActionPreference = $oldPreference
@@ -120,7 +116,10 @@ try {
             $connected = $true
             break
         }
-        Write-Host "PostgreSQL rejected the password or is unavailable. Existing data is untouched." -ForegroundColor Yellow
+        if ($checkExit -ne 2) {
+            Fail "PostgreSQL did not become reachable. Check Docker Desktop/container logs; do not change the password."
+        }
+        Write-Host "PostgreSQL rejected the stored password. Enter the database's actual password." -ForegroundColor Yellow
     }
     if (-not $connected) { Fail "Unable to authenticate to the existing PostgreSQL database. Nothing was overwritten." }
 
