@@ -112,7 +112,7 @@ def test_timeout_bounded_retries(client):
 def test_transient_retry_then_success(client):
     response = client.chat.return_value
     client.chat.side_effect = [ollama.ResponseError("private", 503), response]
-    assert provider(client).analyze("Java required.").extraction.criteria
+    assert provider(client, retries=1).analyze("Java required.").extraction.criteria
     assert client.chat.call_count == 2
 
 
