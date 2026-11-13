@@ -28,6 +28,7 @@ class OllamaSettings(BaseSettings):
     cv_max_model_calls: int = Field(default=32, ge=1, le=64)
     cv_chunk_chars: int = Field(default=1200, ge=300, le=6000)
     cv_max_output_tokens: int = Field(default=3072, ge=256, le=8192)
+    cv_literal_fallback_enabled: bool = True
 
     @field_validator("base_url")
     @classmethod
