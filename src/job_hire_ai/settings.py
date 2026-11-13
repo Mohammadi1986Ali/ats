@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     embeddings_enabled: bool = False
     profile_extraction_enabled: bool = False
     evidence_validation_enabled: bool = False
+    matching_enabled: bool = False
     embedding_model: str = "nomic-embed-text"
     embedding_base_url: str = "http://127.0.0.1:11434"
 
