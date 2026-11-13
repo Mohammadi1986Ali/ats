@@ -22,7 +22,7 @@ LABELS = {
     "SCORING": "Scoring",
     "HR_REVIEW": "HR review",
 }
-FUTURE_STAGES = set(STAGES[2:])
+FUTURE_STAGES = set(STAGES[4:])
 STATUS_TEXT = {
     "PENDING": "Queued",
     "RUNNING": "Running",
@@ -120,8 +120,11 @@ def stage_breakdown(items: list[dict]) -> list[dict]:
                 "Waiting": statuses["WAITING"],
                 "Availability": (
                     "Not implemented" if stage in FUTURE_STAGES
-                    else "Not enabled" if stage == "EMBEDDING" and
-                    statuses["WAITING"] == len(items) else "Active"
+                    else "Waiting for prior stage"
+                    if stage in {"PROFILE_EXTRACTION", "EVIDENCE_VALIDATION"}
+                    and statuses["WAITING"] == len(items)
+                    else "Not enabled" if stage == "EMBEDDING"
+                    and statuses["WAITING"] == len(items) else "Active"
                 ),
             }
         )
