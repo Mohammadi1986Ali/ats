@@ -84,7 +84,7 @@ def test_recovery_refuses_other_failures_and_respects_disabled_mode(
             )
         )
         profile.status = "FAILED"
-        profile.error_summary = "Ollama timed out"
+        profile.error_summary = "Uploaded CV has no readable text"
     directory = tmp_path / "disabled"
     assert not recover_legacy_profiles_once(
         ats.db, directory, fallback_enabled=False
@@ -116,4 +116,31 @@ def test_upgraded_worker_requeues_missing_model_failure_once(ats, vacancy, pdf, 
     assert stage(ats, doc_id, "EMBEDDING").status == "COMPLETED"
     assert recover_legacy_profiles_once(
         ats.db, marker_dir, fallback_enabled=True
+    ) == {}
+
+
+def test_worker_recovers_previous_1131_second_ollama_timeout(ats, vacancy, pdf, tmp_path):
+    doc_id = prepare(ats, vacancy, pdf)
+    with ats.db.transaction() as session:
+        row = session.scalar(
+            select(DocumentPipelineStage).where(
+                DocumentPipelineStage.document_id == doc_id,
+                DocumentPipelineStage.stage == "PROFILE_EXTRACTION",
+            )
+        )
+        row.status = "FAILED"
+        row.attempts = 2
+        row.error_summary = (
+            "Ollama timed out or disconnected. Check the local service; "
+            "CPU inference may need a higher OLLAMA_TIMEOUT. "
+            "No generated extraction was saved."
+        )
+    folder = tmp_path / "timed_out"
+    assert recover_legacy_profiles_once(
+        ats.db, folder, fallback_enabled=True
+    ) == {doc_id: "Requeued"}
+    assert stage(ats, doc_id, "PROFILE_EXTRACTION").status == "PENDING"
+    assert stage(ats, doc_id, "EMBEDDING").status == "COMPLETED"
+    assert recover_legacy_profiles_once(
+        ats.db, folder, fallback_enabled=True
     ) == {}
