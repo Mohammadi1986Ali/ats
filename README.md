@@ -274,3 +274,28 @@ stages are displayed as *Not implemented / Not active yet*, not falsely counted 
 completed. A completed text extraction does not imply completed candidate analysis
 or hiring assessment. No new migration or model is required for this UI phase; the
 Phase 1 migration must already be applied.
+
+## Phase 3.3: source-grounded semantic retrieval
+
+Indexed CV and job-description passages can now be searched locally using the
+same `nomic-embed-text` model as indexing. PostgreSQL computes cosine distance
+with pgvector; SQLite has a deterministic Python fallback for development.
+Retrieval returns **stored original text, original source reference, document ID,
+vacancy ID, and similarity**. It does not generate statements about candidates,
+score them for hiring, or make HR decisions.
+
+With PostgreSQL and Ollama already running and the job/CV embeddings completed:
+
+```powershell
+uv run --no-sync python -m job_hire_ai.search_cli --vacancy-id 1 --query "Java concurrency"
+uv run --no-sync python -m job_hire_ai.search_cli --vacancy-id 1 --source JD --query "backend reliability"
+uv run --no-sync python -m job_hire_ai.search_cli --vacancy-id 1 --document-id 2 --query "Kafka"
+```
+
+Use your real vacancy and document IDs; no test content is inserted automatically.
+Results are job-scoped and exclude removed applications. Matching is retrieval
+only; downstream profile extraction, evidence validation and hiring scores remain
+separate pipeline phases. Query text goes only to the configured local Ollama
+embedding endpoint.
+
+Run offline service tests with `uv run pytest tests/test_semantic_search.py`.
