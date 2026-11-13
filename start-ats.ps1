@@ -58,45 +58,6 @@ try {
         Copy-Item (Join-Path $PSScriptRoot ".env.example") $envPath
     }
     $config = Read-Config $envPath
-    $password = $config["ATS_POSTGRES_PASSWORD"]
-    if ([string]::IsNullOrWhiteSpace($password)) {
-        Write-Host "One-time PostgreSQL setup. This password stays in the local .env file."
-        $secure = Read-Host "Enter existing PostgreSQL password" -AsSecureString
-        $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
-        try {
-            $password = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)
-        } finally {
-            [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)
-        }
-        if ([string]::IsNullOrWhiteSpace($password)) {
-            Fail "PostgreSQL password cannot be empty."
-        }
-        if ($password -match '[\r\n]') { Fail "Password must be one line." }
-        # .env syntax supports standard simple passwords; refuse characters that Compose
-        # might expand or parse differently to avoid accidentally changing DB credentials.
-        if ($password -match '[\$#"`\r\n]') {
-            Fail 'Password contains characters requiring special .env escaping. Configure .env manually.'
-        }
-        Set-Config $envPath "ATS_POSTGRES_PASSWORD" $password
-    }
-    $encoded = [uri]::EscapeDataString($password)
-    $dbUrl = "postgresql+psycopg://ats:${encoded}@127.0.0.1:5433/job_hire_ai"
-    Set-Config $envPath "ATS_DATABASE_URL_OVERRIDE" $dbUrl
-    Set-Config $envPath "ATS_EMBEDDINGS_ENABLED" "true"
-    Set-Config $envPath "ATS_EMBEDDING_MODEL" "nomic-embed-text"
-    Set-Config $envPath "ATS_EMBEDDING_BASE_URL" "http://127.0.0.1:11434"
-
-    # Explicit process values override stale variables from an old PowerShell window.
-    $env:ATS_POSTGRES_PASSWORD = $password
-    $env:ATS_DATABASE_URL_OVERRIDE = $dbUrl
-    $env:ATS_EMBEDDINGS_ENABLED = "true"
-    $env:ATS_EMBEDDING_MODEL = "nomic-embed-text"
-    $env:ATS_EMBEDDING_BASE_URL = "http://127.0.0.1:11434"
-
-    Write-Host "Starting local PostgreSQL..." -ForegroundColor Cyan
-    docker compose --env-file ".env" -f "compose.postgres.yml" up -d
-    if ($LASTEXITCODE -ne 0) { Fail "PostgreSQL could not start. Check Docker Desktop." }
-
     if (-not (Test-Path ".venv")) {
         Write-Host "Installing ATS dependencies (first launch only)..."
         uv sync --frozen --python 3.12
@@ -109,10 +70,65 @@ try {
         if ($LASTEXITCODE -ne 0) { Fail "PostgreSQL driver installation failed." }
     }
 
+    # Existing PostgreSQL volumes retain the original password even when the
+    # container environment changes. Always authenticate before saving secrets.
+    $password = $config["ATS_POSTGRES_PASSWORD"]
+    if ([string]::IsNullOrWhiteSpace($password) -and $config["ATS_DATABASE_URL_OVERRIDE"]) {
+        try {
+            $savedUri = [uri]($config["ATS_DATABASE_URL_OVERRIDE"] -replace '^postgresql\\+psycopg:', 'postgresql:')
+            if ($savedUri.UserInfo -match '^ats:(.*)$') {
+                $password = [uri]::UnescapeDataString($matches[1])
+            }
+        } catch { }
+    }
+    $connected = $false
+    for ($attempt = 1; $attempt -le 4; $attempt++) {
+        if ([string]::IsNullOrWhiteSpace($password) -or $attempt -gt 1) {
+            Write-Host "Enter the ORIGINAL password for the existing ats PostgreSQL database." -ForegroundColor Yellow
+            $secure = Read-Host "PostgreSQL password (not displayed)" -AsSecureString
+            $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+            try { $password = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr) }
+            finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
+        }
+        if ([string]::IsNullOrWhiteSpace($password)) { Fail "Password cannot be empty." }
+        if ($password -match '[\\$#"\x60\\r\\n]') {
+            Fail "Password contains characters requiring manual .env escaping. Existing settings were not changed."
+        }
+        $encoded = [uri]::EscapeDataString($password)
+        $dbUrl = "postgresql+psycopg://ats:${encoded}@127.0.0.1:5433/job_hire_ai"
+        $env:ATS_POSTGRES_PASSWORD = $password
+        $env:ATS_DATABASE_URL_OVERRIDE = $dbUrl
+        Write-Host "Starting local PostgreSQL..." -ForegroundColor Cyan
+        docker compose -f "compose.postgres.yml" up -d
+        if ($LASTEXITCODE -ne 0) { Fail "PostgreSQL could not start. Existing data was not reset." }
+
+        # Verify real TCP authentication rather than trusting docker health checks;
+        # the latter do not prove that the configured password matches the volume.
+        $check = 'import os,sys,time,psycopg; ok=False; ' +
+            'exec("for i in range(12):\\n try:\\n  c=psycopg.connect(host=\'127.0.0.1\',port=5433,dbname=\'job_hire_ai\',user=\'ats\',password=os.environ[\'ATS_POSTGRES_PASSWORD\'],connect_timeout=3); c.close(); ok=True; break\\n except psycopg.OperationalError:\\n  time.sleep(1)"); sys.exit(0 if ok else 1)'
+        uv run --no-sync python -c $check 2>$null
+        if ($LASTEXITCODE -eq 0) {
+            $connected = $true
+            break
+        }
+        Write-Host "PostgreSQL rejected the password or is unavailable. Existing data is untouched." -ForegroundColor Yellow
+    }
+    if (-not $connected) { Fail "Unable to authenticate to the existing PostgreSQL database. Nothing was overwritten." }
+
+    # Only persist verified credentials. Subsequent launches require no password input.
+    Set-Config $envPath "ATS_POSTGRES_PASSWORD" $password
+    Set-Config $envPath "ATS_DATABASE_URL_OVERRIDE" $dbUrl
+    Set-Config $envPath "ATS_EMBEDDINGS_ENABLED" "true"
+    Set-Config $envPath "ATS_EMBEDDING_MODEL" "nomic-embed-text"
+    Set-Config $envPath "ATS_EMBEDDING_BASE_URL" "http://127.0.0.1:11434"
+    $env:ATS_EMBEDDINGS_ENABLED = "true"
+    $env:ATS_EMBEDDING_MODEL = "nomic-embed-text"
+    $env:ATS_EMBEDDING_BASE_URL = "http://127.0.0.1:11434"
+
     Write-Host "Checking database schema..." -ForegroundColor Cyan
     uv run --no-sync alembic upgrade head
     if ($LASTEXITCODE -ne 0) {
-        Fail "Database migration/connection failed. The existing database was not reset."
+        Fail "Database migration/connection failed. Existing database was not reset."
     }
 
     Write-Host "ATS ready. Open http://localhost:8501" -ForegroundColor Green
