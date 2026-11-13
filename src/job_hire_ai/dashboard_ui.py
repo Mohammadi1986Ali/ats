@@ -145,7 +145,8 @@ def monitor_live(ats):
                  width="stretch")
     st.caption(
         "Embedding, profile extraction and automated evidence checks run when enabled. "
-        "Matching, scoring and HR review are future phases."
+        "Matching uses approved job criteria when enabled; scoring and HR review "
+        "are future phases."
     )
     st.subheader("CV monitor")
     filter_col, search_col = st.columns([1, 2])
