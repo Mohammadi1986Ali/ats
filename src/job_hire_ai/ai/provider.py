@@ -18,6 +18,10 @@ class TruncatedResponse(ProviderError):
     """Incomplete output that must not be parsed or persisted."""
 
 
+class InvalidStructuredResponse(ProviderError):
+    """A complete but schema-invalid response; never accept or patch its JSON."""
+
+
 @dataclass
 class InferenceMetrics:
     model_calls: int = 0
