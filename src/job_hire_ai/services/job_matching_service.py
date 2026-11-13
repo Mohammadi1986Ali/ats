@@ -194,6 +194,68 @@ class JobMatchingService:
             session.flush()
             return result
 
+    def requeue_stale(self) -> bool:
+        """Requeue a completed document when HR approves a newer criteria version.
+
+        Preserve earlier match snapshots for audit; never overwrite or erase
+        previous results. Only a current approved JD can trigger rematching.
+        """
+        from job_hire_ai.database.models import DocumentPipelineStage
+
+        with self.db.transaction() as session:
+            completed = list(
+                session.scalars(
+                    select(DocumentPipelineStage)
+                    .join(
+                        CandidateDocument,
+                        DocumentPipelineStage.document_id == CandidateDocument.id,
+                    )
+                    .join(
+                        JobApplication,
+                        CandidateDocument.application_id == JobApplication.id,
+                    )
+                    .where(
+                        DocumentPipelineStage.stage == "MATCHING",
+                        DocumentPipelineStage.status == "COMPLETED",
+                        JobApplication.status == "Uploaded",
+                    )
+                )
+            )
+            for stage in completed:
+                document = session.get(CandidateDocument, stage.document_id)
+                vacancy = session.get(Vacancy, document.vacancy_id)
+                current = session.scalar(
+                    select(CriteriaConfiguration).where(
+                        CriteriaConfiguration.vacancy_id == vacancy.id,
+                        CriteriaConfiguration.status == "APPROVED",
+                        CriteriaConfiguration.job_description_hash
+                        == description_hash(vacancy.description),
+                    )
+                )
+                if current is None:
+                    continue
+                profile = session.scalar(
+                    select(CandidateProfile.id)
+                    .where(CandidateProfile.document_id == document.id)
+                    .order_by(CandidateProfile.id.desc())
+                    .limit(1)
+                )
+                if profile is None:
+                    continue
+                existing = session.scalar(
+                    select(JobMatchResult.id).where(
+                        JobMatchResult.document_id == document.id,
+                        JobMatchResult.configuration_id == current.id,
+                        JobMatchResult.profile_id == profile,
+                    )
+                )
+                if existing is None:
+                    stage.status = "PENDING"
+                    stage.error_summary = None
+                    stage.completed_at = None
+                    return True
+        return False
+
     def list_for_vacancy(self, vacancy_id: int) -> list[JobMatchResult]:
         with self.db.transaction() as session:
             return list(
@@ -201,9 +263,14 @@ class JobMatchingService:
                     select(JobMatchResult)
                     .join(CandidateDocument, JobMatchResult.document_id == CandidateDocument.id)
                     .join(JobApplication, CandidateDocument.application_id == JobApplication.id)
+                    .join(CriteriaConfiguration)
+                    .join(Vacancy, Vacancy.id == JobMatchResult.vacancy_id)
                     .where(
                         JobMatchResult.vacancy_id == vacancy_id,
                         JobApplication.status == "Uploaded",
+                        CriteriaConfiguration.status == "APPROVED",
+                        CriteriaConfiguration.job_description_hash
+                        == description_hash(session.get(Vacancy, vacancy_id).description),
                     )
                     .order_by(JobMatchResult.id.desc())
                 )
