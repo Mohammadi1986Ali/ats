@@ -9,6 +9,7 @@ from job_hire_ai.ai.cv_schemas import PROFILE_SECTIONS, EvidenceQuote
 from job_hire_ai.database.models import (
     CandidateDocument,
     CandidateProfile,
+    CandidateScoreSnapshot,
     CriteriaConfiguration,
     CVAnalysisBatch,
     CVAnalysisJob,
@@ -24,6 +25,7 @@ from job_hire_ai.errors import ATSError
 from job_hire_ai.services.criteria_service import description_hash
 from job_hire_ai.services.evidence_service import verify_quote
 from job_hire_ai.services.job_matching_service import JobMatchingService
+from job_hire_ai.services.candidate_scoring_service import CandidateScoringService
 from job_hire_ai.services.pipeline_service import PipelineService
 from job_hire_ai.text_extraction import ExtractedText
 
@@ -192,3 +194,87 @@ def test_removed_application_has_no_matching_result(ats, vacancy, pdf):
     assert matching.list_for_vacancy(vacancy.id) == []
     with pytest.raises(ATSError, match="Removed applications"):
         matching.match_document(document_id)
+
+
+def test_scoring_is_weighted_evidence_coverage_not_suitability(ats, vacancy, pdf):
+    document_id, profile_id = make_data(ats, vacancy, pdf)
+    config_id = approve_criteria(ats, vacancy, names=("Java", "Python"))
+    match = JobMatchingService(ats.db).match_document(document_id)
+    score = CandidateScoringService(ats.db).score_document(document_id)
+    assert score.match_result_id == match.id
+    assert score.profile_id == profile_id
+    assert score.configuration_id == config_id
+    assert (score.documented_weight, score.unverified_weight, score.review_weight) == (
+        50, 50, 0
+    )
+    java, python = score.criterion_breakdown
+    assert java["documented_points"] == 50
+    assert java["evidence"][0]["source_excerpt"] == "Java and SQL experience."
+    assert python["documented_points"] == 0
+    assert python["evidence_status"] == "NOT_EVIDENCED"
+    assert CandidateScoringService(ats.db).score_document(document_id).id == score.id
+    assert len(CandidateScoringService(ats.db).list_for_vacancy(vacancy.id)) == 1
+
+
+def test_scoring_refuses_missing_or_corrupt_matching_snapshot(ats, vacancy, pdf):
+    document_id, _ = make_data(ats, vacancy, pdf)
+    approve_criteria(ats, vacancy, names=("Java",))
+    scoring = CandidateScoringService(ats.db)
+    with pytest.raises(ATSError, match="Matching"):
+        scoring.score_document(document_id)
+    match = JobMatchingService(ats.db).match_document(document_id)
+    with ats.db.transaction() as session:
+        persisted = session.get(JobMatchResult, match.id)
+        persisted.criteria_results = [{
+            **persisted.criteria_results[0],
+            "status": "EVIDENCED",
+            "evidence": [],
+        }]
+    with pytest.raises(ATSError, match="lacks source references"):
+        scoring.score_document(document_id)
+    with ats.db.transaction() as session:
+        assert session.scalar(
+            select(CandidateScoreSnapshot).where(
+                CandidateScoreSnapshot.document_id == document_id
+            )
+        ) is None
+
+
+def test_scoring_pipeline_requires_completed_matching(ats, vacancy, pdf):
+    document_id, _ = make_data(ats, vacancy, pdf)
+    approve_criteria(ats, vacancy, names=("Java",))
+    JobMatchingService(ats.db).match_document(document_id)
+    pipeline = PipelineService(
+        ats.db, ats.documents, ats.pipeline.data_dir, scoring_enabled=True,
+    )
+    assert not pipeline.process_scoring_next()
+    with ats.db.transaction() as session:
+        matching = session.scalar(
+            select(DocumentPipelineStage).where(
+                DocumentPipelineStage.document_id == document_id,
+                DocumentPipelineStage.stage == "MATCHING",
+            )
+        )
+        matching.status = "COMPLETED"
+    assert pipeline.process_scoring_next()
+    with ats.db.transaction() as session:
+        stage = session.scalar(
+            select(DocumentPipelineStage).where(
+                DocumentPipelineStage.document_id == document_id,
+                DocumentPipelineStage.stage == "SCORING",
+            )
+        )
+        assert stage.status == "COMPLETED"
+        assert stage.attempts == 1
+        assert session.scalar(select(CandidateScoreSnapshot.id)) is not None
+    assert not pipeline.process_scoring_next()
+
+
+def test_uncertain_claim_is_not_documented_weight(ats, vacancy, pdf):
+    document_id, _ = make_data(ats, vacancy, pdf, supported=False)
+    approve_criteria(ats, vacancy, names=("Java",))
+    JobMatchingService(ats.db).match_document(document_id)
+    score = CandidateScoringService(ats.db).score_document(document_id)
+    assert score.documented_weight == 0
+    assert score.unverified_weight == 100
+    assert score.review_weight == 0
