@@ -26,6 +26,10 @@ def main() -> None:
     db = Database(settings.database_url)
     storage = LocalStorage(settings.directory / "uploads", settings.max_file_mb * 1024**2)
     documents = DocumentService(db, storage)
+    if settings.evidence_validation_enabled and not settings.profile_extraction_enabled:
+        raise ATSError(
+            "Automatic evidence validation requires ATS_PROFILE_EXTRACTION_ENABLED=true."
+        )
     analyzer = None
     if settings.profile_extraction_enabled:
         if not settings.embeddings_enabled:
