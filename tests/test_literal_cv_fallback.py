@@ -124,6 +124,7 @@ def test_operator_can_requeue_exhausted_profile_without_resetting_embedding(ats,
 def test_fast_1b_mode_does_not_invoke_slow_model_at_all(ats, vacancy):
     provider = mock_provider()
     provider.analyze_cv.side_effect = AssertionError("1B model must not run in fast mode")
+    provider.check.side_effect = AssertionError("Fast source-only mode must not check Ollama")
     ats.cv_analysis.provider = provider
     ats.cv_analysis.settings = ats.cv_analysis.settings.model_copy(
         update={"model": "llama3.2:1b", "cv_fast_mode_1b": True}
@@ -162,3 +163,35 @@ def test_manual_1b_extraction_remains_available_when_fast_mode_disabled(ats, vac
     ats.cv_analysis.process_batch(batch_id)
     assert ats.cv_analysis.jobs(batch_id)[0].status in {"COMPLETED", "NEEDS_REVIEW"}
     provider.analyze_cv.assert_called()
+
+
+def test_fast_profile_completes_when_ollama_model_not_installed(ats, vacancy):
+    provider = mock_provider()
+    provider.check.side_effect = AssertionError("Missing model check must be skipped")
+    provider.analyze_cv.side_effect = AssertionError("No model inference allowed")
+    ats.cv_analysis.provider = provider
+    ats.cv_analysis.settings = ats.cv_analysis.settings.model_copy(
+        update={
+            "model": "qwen2.5:0.5b",
+            "cv_fast_mode_1b": True,
+            "cv_literal_fallback_enabled": True,
+        }
+    )
+    assert ats.documents.upload_batch(
+        vacancy.id, [("missing-model.pdf", pdf_bytes("Java and Kafka."))]
+    )[0].success
+    document_id = ats.cv_analysis.list_documents(vacancy.id)[0]["Document"]
+    batch_id = ats.cv_analysis.create_batch(vacancy.id, [document_id])
+    ats.cv_analysis.process_batch(batch_id)
+    assert ats.cv_analysis.jobs(batch_id)[0].status == "NEEDS_REVIEW"
+    profile = ats.profiles.list(document_id=document_id)[0]
+    assert FAST_MODE_WARNING in profile.warnings
+    assert {item["name"] for item in profile.original_extraction["technical_skills"]} == {
+        "Java", "Kafka"
+    }
+    assert all(
+        item["claim_status"] == "UNCERTAIN"
+        for item in profile.original_extraction["technical_skills"]
+    )
+    provider.check.assert_not_called()
+    provider.analyze_cv.assert_not_called()
