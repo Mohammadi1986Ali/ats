@@ -11,18 +11,18 @@ class OllamaSettings(BaseSettings):
         env_prefix="OLLAMA_", env_file=ROOT / ".env", extra="ignore", populate_by_name=True
     )
     base_url: str = "http://localhost:11434"
-    model: str = "llama3.2:1b"
+    model: str = "qwen2.5:0.5b"
     temperature: float = Field(default=0, ge=0, le=1)
     num_ctx: int = Field(default=8192, ge=4096, le=32768)
     num_predict: int = Field(default=4096, ge=256, le=8192)
-    num_thread: int = Field(default=8, ge=1, le=32)
+    num_thread: int = Field(default=2, ge=1, le=32)
     timeout_seconds: float = Field(
-        default=600,
+        default=120,
         ge=1,
         le=600,
         validation_alias=AliasChoices("OLLAMA_TIMEOUT", "OLLAMA_TIMEOUT_SECONDS"),
     )
-    retries: int = Field(default=1, ge=0, le=2)
+    retries: int = Field(default=0, ge=0, le=2)
     max_description_chars: int = Field(default=12000, ge=100, le=50000)
     cv_truncation_retries: int = Field(default=4, ge=0, le=4)
     cv_max_model_calls: int = Field(default=32, ge=1, le=64)
@@ -53,7 +53,7 @@ class OllamaSettings(BaseSettings):
     @classmethod
     def local_model(cls, value):
         if not value.strip() or "cloud" in value.lower() or "/" in value or " " in value:
-            raise ValueError("Use a locally installed model tag, such as llama3.2:1b.")
+            raise ValueError("Use a locally installed model tag, such as qwen2.5:0.5b.")
         return value
 
     def options(self):
