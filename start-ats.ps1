@@ -147,21 +147,61 @@ try {
             [Environment]::SetEnvironmentVariable($item[0], $item[2], "Process")
         }
     }
-    # Streamlit's model settings and the background worker both read .env.
-    # Never trigger a download for a user-selected nondefault model.
+    # Use exit codes, not native stderr, to detect whether the model is installed.
+    # Under ErrorActionPreference=Stop, "ollama show" prints "model not found" to
+    # stderr and otherwise aborts the entire PowerShell launcher before pull.
     $modelToUse = (Read-Config $envPath)["OLLAMA_MODEL"]
-    if ($modelToUse -eq "qwen2.5:0.5b") {
-        if (-not (Get-Command ollama -ErrorAction SilentlyContinue)) {
-            Fail "Ollama executable is missing. Start/install Ollama before opening ATS."
+    $ollamaCommand = Get-Command ollama -ErrorAction SilentlyContinue
+    if ($modelToUse -eq "qwen2.5:0.5b" -and $ollamaCommand) {
+        $ollamaExe = $ollamaCommand.Source
+        $available = $false
+        try {
+            $check = Start-Process -FilePath $ollamaExe -ArgumentList @(
+                "show", "qwen2.5:0.5b"
+            ) -Wait -PassThru -NoNewWindow -RedirectStandardError (
+                Join-Path $env:TEMP "ats-ollama-model-check.err"
+            ) -RedirectStandardOutput (
+                Join-Path $env:TEMP "ats-ollama-model-check.out"
+            )
+            $available = ($check.ExitCode -eq 0)
+        } catch {
+            Write-Host "Cannot check local model; will try the small model download." -ForegroundColor Yellow
         }
-        ollama show qwen2.5:0.5b 2>$null | Out-Null
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "Downloading the small qwen2.5:0.5b model (one time only)..." -ForegroundColor Cyan
-            ollama pull qwen2.5:0.5b
-            if ($LASTEXITCODE -ne 0) {
-                Fail "Could not install lightweight Ollama model. Existing data is unchanged."
+        if (-not $available) {
+            Write-Host "Installing lightweight qwen2.5:0.5b model..." -ForegroundColor Cyan
+            try {
+                $pull = Start-Process -FilePath $ollamaExe -ArgumentList @(
+                    "pull", "qwen2.5:0.5b"
+                ) -Wait -PassThru -NoNewWindow
+                $available = ($pull.ExitCode -eq 0)
+            } catch {
+                $available = $false
             }
         }
+        if (-not $available) {
+            Write-Host "Small model unavailable; trying installed llama3.2:1b instead." -ForegroundColor Yellow
+            try {
+                $legacy = Start-Process -FilePath $ollamaExe -ArgumentList @(
+                    "show", "llama3.2:1b"
+                ) -Wait -PassThru -NoNewWindow -RedirectStandardError (
+                    Join-Path $env:TEMP "ats-ollama-legacy-check.err"
+                ) -RedirectStandardOutput (
+                    Join-Path $env:TEMP "ats-ollama-legacy-check.out"
+                )
+                if ($legacy.ExitCode -eq 0) {
+                    Set-Config $envPath "OLLAMA_MODEL" "llama3.2:1b"
+                    $env:OLLAMA_MODEL = "llama3.2:1b"
+                    $available = $true
+                }
+            } catch {
+                $available = $false
+            }
+        }
+        if (-not $available) {
+            Write-Host "No local CV language model found. ATS UI will start, but AI analysis requires an installed model." -ForegroundColor Yellow
+        }
+    } elseif ($modelToUse -eq "qwen2.5:0.5b") {
+        Write-Host "Ollama CLI not found. ATS UI will start; install/start Ollama to use local AI features." -ForegroundColor Yellow
     }
 
     # Upgrade only unchanged legacy extraction defaults. Preserve any user-
