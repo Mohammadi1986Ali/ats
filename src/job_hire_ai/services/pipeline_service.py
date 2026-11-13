@@ -296,7 +296,7 @@ class PipelineService:
             stage = session.get(DocumentPipelineStage, stage_id)
             if stage is not None:
                 stage.status = "FAILED" if error else "COMPLETED"
-                stage.error_summary = error or review_note
+                stage.error_summary = error
                 stage.completed_at = now()
                 stage.duration_ms = round((time.perf_counter() - started) * 1000)
         return True
@@ -376,7 +376,7 @@ class PipelineService:
             stage = session.get(DocumentPipelineStage, stage_id)
             if stage is not None:
                 stage.status = "FAILED" if error else "COMPLETED"
-                stage.error_summary = error
+                stage.error_summary = error or review_note
                 stage.completed_at = now()
                 stage.duration_ms = round((time.perf_counter() - started) * 1000)
         return True
