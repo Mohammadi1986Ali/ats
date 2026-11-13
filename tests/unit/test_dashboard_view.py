@@ -60,11 +60,11 @@ def test_stage_breakdown_marks_future_stages_inactive():
     assert stages[1]["Availability"] == "Not enabled"
     assert all(
         row["Waiting"] == 2 and row["Availability"] == "Waiting for prior stage"
-        for row in stages[2:4]
+        for row in stages[2:5]
     )
     assert all(
         row["Waiting"] == 2 and row["Availability"] == "Not implemented"
-        for row in stages[4:]
+        for row in stages[5:]
     )
 
 
