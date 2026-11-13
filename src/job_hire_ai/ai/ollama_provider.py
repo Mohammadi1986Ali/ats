@@ -113,7 +113,7 @@ class OllamaProvider:
                 if recoveries <= 0:
                     raise ProviderError(
                         "CV extraction could not produce complete valid structured output "
-                        "within bounded source-splitting retries. No partial profile saved. "
+                        "within bounded retries for source splitting. No partial profile saved. "
                         "Try smaller CV sections or a more capable local evaluation model."
                     ) from None
                 recoveries -= 1
