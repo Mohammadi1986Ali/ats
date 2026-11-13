@@ -23,7 +23,7 @@ from job_hire_ai.services.pipeline_service import PipelineService
 from job_hire_ai.text_extraction import ExtractedText
 
 
-def seed_profile(ats, vacancy, pdf, *, quote_text, save_quote=True):
+def seed_profile(ats, vacancy, pdf, *, quote_text, save_quote=True, warnings=None):
     assert ats.documents.upload_batch(vacancy.id, [("audit.pdf", pdf)])[0].success
     assert ats.pipeline.process_next()
     with ats.db.transaction() as session:
@@ -68,7 +68,8 @@ def seed_profile(ats, vacancy, pdf, *, quote_text, save_quote=True):
             candidate_id=document.application.candidate_id, document_id=document.id,
             text_extraction_id=extraction.id, analysis_run_id=run.id,
             extraction_version=1, config_hash="offline-test",
-            analysis_status="COMPLETED", original_extraction=payload, warnings=[],
+            analysis_status="NEEDS_REVIEW" if warnings else "COMPLETED",
+            original_extraction=payload, warnings=warnings or [],
         )
         session.add(profile)
         session.flush()
@@ -146,14 +147,12 @@ def test_unverifiable_quote_requires_review_not_approval(ats, vacancy, pdf):
     assert any("unverified" in issue for issue in result.issues)
     with ats.db.transaction() as session:
         profile = session.get(CandidateProfile, profile_id)
-        assert profile.analysis_status == "NEEDS_REVIEW"
-        assert any("Evidence audit:" in warning for warning in profile.warnings)
+        assert profile.analysis_status == "COMPLETED"
+        assert profile.warnings == []
         assert profile.reviews == []
-    # Repeated audit refreshes its own warnings instead of accumulating duplicates.
-    EvidenceValidationService(ats.db).validate_document(document_id)
-    with ats.db.transaction() as session:
-        profile = session.get(CandidateProfile, profile_id)
-        assert len(profile.warnings) == len(set(profile.warnings))
+    # Audit findings are returned to the pipeline, not written into immutable history.
+    second = EvidenceValidationService(ats.db).validate_document(document_id)
+    assert second.issues == result.issues
 
 
 def test_incomplete_persisted_evidence_fails_closed(ats, vacancy, pdf):
@@ -222,12 +221,9 @@ def test_crashed_evidence_audit_is_requeued(ats, vacancy, pdf):
 
 def test_clean_evidence_does_not_clear_existing_extraction_review(ats, vacancy, pdf):
     document_id, profile_id = seed_profile(
-        ats, vacancy, pdf, quote_text="Java and SQL experience."
+        ats, vacancy, pdf, quote_text="Java and SQL experience.",
+        warnings=["Source extraction requires manual inspection."],
     )
-    with ats.db.transaction() as session:
-        profile = session.get(CandidateProfile, profile_id)
-        profile.warnings = ["Source extraction requires manual inspection."]
-        profile.analysis_status = "NEEDS_REVIEW"
     audit = EvidenceValidationService(ats.db).validate_document(document_id)
     assert audit.issues == ()
     assert audit.needs_review
