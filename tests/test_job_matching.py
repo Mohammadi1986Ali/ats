@@ -22,10 +22,10 @@ from job_hire_ai.database.models import (
     JobMatchResult,
 )
 from job_hire_ai.errors import ATSError
+from job_hire_ai.services.candidate_scoring_service import CandidateScoringService
 from job_hire_ai.services.criteria_service import description_hash
 from job_hire_ai.services.evidence_service import verify_quote
 from job_hire_ai.services.job_matching_service import JobMatchingService
-from job_hire_ai.services.candidate_scoring_service import CandidateScoringService
 from job_hire_ai.services.pipeline_service import PipelineService
 from job_hire_ai.text_extraction import ExtractedText
 
