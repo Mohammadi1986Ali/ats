@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 
+import pytest
 from sqlalchemy import select
 
 from job_hire_ai.ai.cv_schemas import PROFILE_SECTIONS, EvidenceQuote
@@ -15,6 +16,7 @@ from job_hire_ai.database.models import (
     DocumentTextExtraction,
     EvidenceReference,
 )
+from job_hire_ai.errors import ATSError
 from job_hire_ai.services.evidence_service import verify_quote
 from job_hire_ai.services.evidence_validation_service import EvidenceValidationService
 from job_hire_ai.services.pipeline_service import PipelineService
@@ -158,13 +160,8 @@ def test_incomplete_persisted_evidence_fails_closed(ats, vacancy, pdf):
     document_id, _ = seed_profile(
         ats, vacancy, pdf, quote_text="Java and SQL experience.", save_quote=False
     )
-    from job_hire_ai.errors import ATSError
-
-    try:
+    with pytest.raises(ATSError, match="incomplete"):
         EvidenceValidationService(ats.db).validate_document(document_id)
-        assert False, "Expected missing evidence to be rejected"
-    except ATSError as exc:
-        assert "incomplete" in str(exc)
 
 
 def test_audit_pipeline_requires_completed_profile(ats, vacancy, pdf):
