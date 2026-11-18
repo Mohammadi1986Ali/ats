@@ -164,6 +164,31 @@ def monitor_live(ats):
                                        f"CV {n} · {r['Filename']}" for r in rows if r["CV ID"] == n
                                    ), key="monitor_cv")
         detail = next(r for r in all_items if r["CV"] == selected_id)
+        # Similarity is JD-to-CV text retrieval, not evidence of a qualification
+        # or an automated hiring/ranking score. No LLM calls in this view.
+        semantic = ats.semantic_matching.current_result(selected_id)
+        if semantic is not None:
+            with st.expander("JD ↔ CV semantic passages (review only)", expanded=True):
+                st.caption(
+                    "Stored embeddings only. Cosine similarity measures text relevance, "
+                    "NOT candidate suitability, qualification proof or a hiring score."
+                )
+                passages = []
+                for item in semantic.comparisons:
+                    for hit in item["cv_passages"]:
+                        passages.append({
+                            "JD passage": item["jd_excerpt"][:250],
+                            "JD source": item["jd_reference"],
+                            "CV passage": hit["source_excerpt"][:350],
+                            "CV source": hit["source_reference"],
+                            "Cosine similarity": hit["cosine_similarity"],
+                        })
+                if passages:
+                    st.dataframe(pd.DataFrame(passages), hide_index=True, width="stretch")
+                st.caption(
+                    "Every CV passage remains unverified as a qualification; "
+                    "consult the original PDF and HR-reviewed criteria."
+                )
         with st.container(border=True):
             stage_name, stage_status = current_stage(detail)
             st.markdown(f"**CV {selected_id} · {detail['Filename']}**")
