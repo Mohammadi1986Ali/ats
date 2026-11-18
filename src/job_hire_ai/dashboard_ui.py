@@ -164,6 +164,78 @@ def monitor_live(ats):
                                        f"CV {n} · {r['Filename']}" for r in rows if r["CV ID"] == n
                                    ), key="monitor_cv")
         detail = next(r for r in all_items if r["CV"] == selected_id)
+        # Show persisted results for this CV; never infer success from stage flags alone.
+        with st.expander("Stored CV profile", expanded=True):
+            profiles = ats.profiles.list(document_id=selected_id)
+            if profiles:
+                profile = profiles[0]
+                st.caption(
+                    f"Profile ID {profile.id} · Review status: "
+                    f"{ats.profiles.status(profile)} · Read from the database"
+                )
+                st.json(ats.profiles.effective(profile))
+            else:
+                st.warning("No stored candidate profile found for this CV.")
+
+        with st.expander("Verified criteria matching", expanded=True):
+            matches = [
+                match for match in ats.job_matching.list_for_vacancy(selected.id)
+                if match.document_id == selected_id
+            ]
+            if matches:
+                match = matches[0]
+                st.caption(
+                    f"Match ID {match.id} · Matches are evidence checks, "
+                    "not hiring suitability scores."
+                )
+                st.dataframe(
+                    pd.DataFrame([
+                        {
+                            "Criterion": item.get("name"),
+                            "Evidence status": item.get("status"),
+                            "Evidence references": len(item.get("evidence") or []),
+                        }
+                        for item in match.criteria_results
+                    ]),
+                    hide_index=True, width="stretch",
+                )
+                with st.expander("Full stored matching evidence"):
+                    st.json(match.criteria_results)
+            else:
+                st.info(
+                    "No approved-criteria match is stored for this CV. "
+                    "A completed Matching stage may represent semantic similarity only."
+                )
+
+        with st.expander("Stored evidence-coverage scoring", expanded=True):
+            scores = [
+                score for score in ats.candidate_scoring.list_for_vacancy(selected.id)
+                if score.document_id == selected_id
+            ]
+            if scores:
+                score = scores[0]
+                st.caption(
+                    f"Score snapshot {score.id} · This measures documented evidence "
+                    "coverage, not candidate suitability."
+                )
+                st.write({
+                    "Documented weight": score.documented_weight,
+                    "Not evidenced weight": score.unverified_weight,
+                    "Review required weight": score.review_weight,
+                })
+                st.dataframe(pd.DataFrame(score.criterion_breakdown),
+                             hide_index=True, width="stretch")
+            elif not ats.job_matching.ready(selected.id):
+                st.info(
+                    "Scoring is waiting for HR-approved criteria for the current "
+                    "job description. Semantic matching alone does not enable scoring."
+                )
+            else:
+                st.info(
+                    "No scoring result is stored for this CV yet. "
+                    "Inspect the Scoring stage below for status and errors."
+                )
+
         # Similarity is JD-to-CV text retrieval, not evidence of a qualification
         # or an automated hiring/ranking score. No LLM calls in this view.
         semantic = ats.semantic_matching.current_result(selected_id)
