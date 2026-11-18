@@ -521,3 +521,35 @@ The existing `Start ATS.cmd` on a machine does not gain auto-update support
 until its newer GitHub version has been fetched **once** (e.g. with GitHub
 Desktop's Pull Origin button). After that, routine startup needs only a
 double-click; no PowerShell, retry commands, uploads or DB resets.
+
+
+## Automatic JD/CV semantic matching from stored vectors
+
+After upload, the background worker indexes the current Job Description and CV
+chunks with the **same** local `nomic-embed-text` embedding model. Once each
+CV's evidence-validation stage completes and both sets of embeddings exist,
+the `MATCHING` stage now creates a persisted **semantic passage-retrieval**
+snapshot **without requiring manual Job Criteria approval**.
+
+- `semantic_match_results` stores the current JD/CV source fingerprints,
+  embedding model, method version, and source-quoted JD passages with their
+  closest CV passages and raw cosine similarity.
+- The pipeline **reuses existing vectors**; it does not call generative Ollama,
+  download additional LLMs, or re-embed during a comparison.
+- The per-CV matching passages appear in **Pipeline Monitor**. They are
+  relevance hints for a human, **not** qualification proof, a hiring suitability
+  probability, automated applicant ranking, or a pass/fail decision.
+- Changing the JD invalidates the previous semantic snapshot; the worker
+  first refreshes the JD embedding and then recomputes the comparison.
+- Existing HR-approved criterion matching remains available; its evidence
+  coverage `SCORING` still waits for valid approved criteria, and semantic
+  similarity must never silently become an HR score.
+- Vector comparisons are bounded (maximum 40 JD and 120 CV chunks, top 2
+  passages per JD section) to avoid overheating CPU-only laptops.
+- Schema migration is additive and preserves existing CV files, embeddings,
+  profiles, and earlier human-reviewed matching/scoring snapshots.
+
+Restart ATS using `Start ATS.cmd` after fetching this branch. Existing
+documents with completed evidence checks and current embeddings will
+automatically enter vector matching; no CV reupload, manual criteria, or
+PowerShell retry command is necessary.
