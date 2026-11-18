@@ -56,8 +56,9 @@ def test_sqlite_alembic_head_is_non_destructive(tmp_path):
     try:
         with db.engine.connect() as conn:
             assert inspect(conn).has_table("document_pipeline_stages")
+            assert inspect(conn).has_table("semantic_match_results")
             assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar() == (
-                "b72f36c519e0"
+                "e83af9d27410"
             )
     finally:
         db.engine.dispose()
