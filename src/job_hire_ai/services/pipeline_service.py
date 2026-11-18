@@ -30,6 +30,7 @@ from job_hire_ai.services.embedding_service import (
 )
 from job_hire_ai.services.evidence_validation_service import EvidenceValidationService
 from job_hire_ai.services.job_matching_service import JobMatchingService
+from job_hire_ai.services.semantic_matching_service import SemanticMatchingService
 from job_hire_ai.text_extraction import EXTRACTOR_VERSION, ExtractedText, TextExtractor
 
 logger = logging.getLogger(__name__)
@@ -63,7 +64,8 @@ class PipelineService:
         embedding_model="nomic-embed-text", embedding_base_url="http://127.0.0.1:11434",
         embedder=None, profile_extraction_enabled=False, profile_analyzer=None,
         evidence_validation_enabled=False, evidence_validator=None,
-        matching_enabled=False, matcher=None, scoring_enabled=False, scorer=None,
+        matching_enabled=False, matcher=None, semantic_matcher=None,
+        scoring_enabled=False, scorer=None,
     ):
         self.db, self.documents = db, documents
         self.data_dir = data_dir
@@ -79,6 +81,7 @@ class PipelineService:
         self.evidence_validator = evidence_validator or EvidenceValidationService(db)
         self.matching_enabled = matching_enabled
         self.matcher = matcher or JobMatchingService(db)
+        self.semantic_matcher = semantic_matcher or SemanticMatchingService(db, embedding_model)
         self.scoring_enabled = scoring_enabled
         self.scorer = scorer or CandidateScoringService(db)
         self._jd_failed_hashes = set()
@@ -450,11 +453,7 @@ class PipelineService:
         return True
 
     def process_matching_next(self) -> bool:
-        """Match only against approved current job criteria after evidence audit.
-
-        Without an approved/current criteria snapshot, leave MATCHING waiting;
-        the worker will pick it up automatically once HR approves the job.
-        """
+        """Retrieve JD/CV semantic passages automatically; preserve HR matching."""
         if not self.matching_enabled:
             return False
         with self.db.transaction() as session:
@@ -486,7 +485,9 @@ class PipelineService:
                 )
             )
         for stage_id, document_id, vacancy_id in candidates:
-            if not self.matcher.ready(vacancy_id):
+            criteria_ready = self.matcher.ready(vacancy_id)
+            semantic_ready = self.semantic_matcher.ready(vacancy_id)
+            if not (criteria_ready or semantic_ready):
                 continue
             with self.db.transaction() as session:
                 claimed = session.execute(
@@ -506,7 +507,10 @@ class PipelineService:
             started = time.perf_counter()
             error = None
             try:
-                self.matcher.match_document(document_id)
+                if semantic_ready:
+                    self.semantic_matcher.match_document(document_id)
+                if criteria_ready:
+                    self.matcher.match_document(document_id)
             except ATSError as exc:
                 error = str(exc)[:500]
             except Exception:
@@ -520,7 +524,7 @@ class PipelineService:
                     stage.error_summary = error
                     stage.completed_at = now()
                     stage.duration_ms = round((time.perf_counter() - started) * 1000)
-                    if not error and self.scoring_enabled:
+                    if not error and self.scoring_enabled and criteria_ready:
                         score_stage = session.scalar(
                             select(DocumentPipelineStage).where(
                                 DocumentPipelineStage.document_id == document_id,
@@ -533,7 +537,59 @@ class PipelineService:
                             score_stage.status = "PENDING"
                             score_stage.error_summary = None
             return True
-        return self.matcher.requeue_stale()
+        if self.matcher.requeue_stale():
+            return True
+        return self._requeue_stale_semantic_matches()
+
+    def _requeue_stale_semantic_matches(self) -> bool:
+        """Refresh stored similarity when current JD or CV differs from its snapshot."""
+        from job_hire_ai.database.models import SemanticMatchResult
+
+        with self.db.transaction() as session:
+            completed = list(session.scalars(
+                select(DocumentPipelineStage)
+                .join(CandidateDocument,
+                      CandidateDocument.id == DocumentPipelineStage.document_id)
+                .join(JobApplication,
+                      JobApplication.id == CandidateDocument.application_id)
+                .where(
+                    DocumentPipelineStage.stage == "MATCHING",
+                    DocumentPipelineStage.status == "COMPLETED",
+                    JobApplication.status == "Uploaded",
+                )
+            ))
+            for stage in completed:
+                document = session.get(CandidateDocument, stage.document_id)
+                vacancy = session.get(Vacancy, document.vacancy_id)
+                if not self.semantic_matcher.ready(vacancy.id):
+                    continue
+                source = session.scalar(
+                    select(DocumentTextExtraction)
+                    .where(
+                        DocumentTextExtraction.document_id == document.id,
+                        DocumentTextExtraction.checksum == document.checksum,
+                    )
+                    .order_by(DocumentTextExtraction.id.desc()).limit(1)
+                )
+                if source is None:
+                    continue
+                cv_hash = source_hash(source.checksum + ":" + source.extractor_version)
+                saved = session.scalar(
+                    select(SemanticMatchResult.id).where(
+                        SemanticMatchResult.document_id == document.id,
+                        SemanticMatchResult.jd_source_hash == source_hash(vacancy.description),
+                        SemanticMatchResult.cv_source_hash == cv_hash,
+                        SemanticMatchResult.embedding_model
+                        == self.semantic_matcher.embedding_model,
+                        SemanticMatchResult.method_version == "cosine-retrieval-v1",
+                    )
+                )
+                if saved is None:
+                    stage.status = "PENDING"
+                    stage.error_summary = None
+                    stage.completed_at = None
+                    return True
+        return False
 
     def process_scoring_next(self) -> bool:
         """Record evidence coverage only after successful job matching."""
@@ -580,6 +636,17 @@ class PipelineService:
         if stage_id is None:
             return False
 
+        # Semantic relevance is not a weighted evidence score.
+        with self.db.transaction() as session:
+            document = session.get(CandidateDocument, document_id)
+            vacancy_id = document.vacancy_id
+        if not self.matcher.ready(vacancy_id):
+            with self.db.transaction() as session:
+                stage = session.get(DocumentPipelineStage, stage_id)
+                if stage is not None:
+                    stage.status = "WAITING"
+                    stage.error_summary = "HR-approved criteria required for evidence scoring."
+            return False
         started = time.perf_counter()
         error = None
         try:
