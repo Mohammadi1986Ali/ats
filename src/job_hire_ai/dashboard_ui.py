@@ -55,8 +55,8 @@ def _kpis(pulses):
     for column, (label, value) in zip(st.columns(5), data.items(), strict=True):
         column.metric(label, value)
     st.caption(
-        "Text complete counts only text extraction. AI matching, scoring and HR review "
-        "are not yet running."
+        "Text complete counts only text extraction. JD/CV vector comparison "
+        "runs automatically when source embeddings are ready; HR review is separate."
     )
 
 
