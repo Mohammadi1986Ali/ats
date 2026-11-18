@@ -376,6 +376,32 @@ class JobMatchResult(Base):
 
 
 
+
+class SemanticMatchResult(Base):
+    """Retrieval-only JD/CV similarity snapshot, never a hiring suitability score."""
+
+    __tablename__ = "semantic_match_results"
+    __table_args__ = (
+        UniqueConstraint(
+            "document_id", "jd_source_hash", "cv_source_hash",
+            "embedding_model", "method_version", name="uq_semantic_match_snapshot",
+        ),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    document_id: Mapped[int] = mapped_column(
+        ForeignKey("candidate_documents.id", ondelete="CASCADE"), index=True
+    )
+    vacancy_id: Mapped[int] = mapped_column(
+        ForeignKey("vacancies.id", ondelete="CASCADE"), index=True
+    )
+    jd_source_hash: Mapped[str] = mapped_column(String(64))
+    cv_source_hash: Mapped[str] = mapped_column(String(64))
+    embedding_model: Mapped[str] = mapped_column(String(200))
+    method_version: Mapped[str] = mapped_column(String(60))
+    comparisons: Mapped[list] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(default=now)
+
+
 class CandidateScoreSnapshot(Base):
     """Documented evidence coverage; not a prediction of candidate suitability."""
 
