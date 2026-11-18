@@ -34,9 +34,9 @@ class FakeEmbedder:
         return vectors
 
 
-def index_test_sources(ats, vacancy, pdf, *, cv_word="Java"):
+def index_test_sources(ats, vacancy, pdf):
     from job_hire_ai.database.models import DocumentTextExtraction
-    from job_hire_ai.text_extraction import ExtractedText, chunk_document
+    from job_hire_ai.text_extraction import ExtractedText
     from job_hire_ai.services.embedding_service import chunk_cv
 
     assert ats.documents.upload_batch(vacancy.id, [("candidate.pdf", pdf)])[0].success
