@@ -139,6 +139,8 @@ def current_stage(row: dict) -> tuple[str, str]:
                 return LABELS[stage], STATUS_TEXT[status]
     for stage in STAGES:
         if row.get(stage) == "WAITING":
+            if stage == "SCORING" and row.get("MATCHING") == "COMPLETED":
+                return LABELS[stage], "Waiting for JD criteria"
             return LABELS[stage], "Not active yet"
     return "Complete", "Completed"
 
@@ -171,7 +173,10 @@ def document_rows(items: list[dict], query: str = "", status: str = "All") -> li
                 if row.get("TEXT_EXTRACTION_duration_ms") is not None
                 else None
             ),
-            "Error": row.get("TEXT_EXTRACTION_error") or row.get("EMBEDDING_error") or "",
+            "Error": next(
+                (row.get(f"{stage}_error") for stage in STAGES
+                 if row.get(f"{stage}_error")), ""
+            ),
         }
         output.append(result)
     return sorted(output, key=lambda r: (r["Status"] != "Failed", r["CV ID"]))

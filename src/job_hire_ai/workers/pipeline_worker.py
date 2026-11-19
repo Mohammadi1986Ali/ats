@@ -11,6 +11,7 @@ from job_hire_ai.database.session import Database
 from job_hire_ai.errors import ATSError
 from job_hire_ai.services.cv_analysis_service import CVAnalysisService
 from job_hire_ai.services.document_service import DocumentService
+from job_hire_ai.services.legacy_jd_activation import recover_legacy_jd_weights
 from job_hire_ai.services.pipeline_service import PipelineService
 from job_hire_ai.settings import Settings
 from job_hire_ai.storage import LocalStorage
@@ -78,6 +79,9 @@ def main() -> None:
                     db, settings.directory,
                     fallback_enabled=analyzer.settings.cv_literal_fallback_enabled,
                 )
+            if settings.matching_enabled and settings.scoring_enabled:
+                recovered = recover_legacy_jd_weights(db)
+                logging.info("Legacy JD weighting recovery: %s", recovered)
             logging.info("Automatic CV text worker started")
             while True:
                 if not service.process_next():
