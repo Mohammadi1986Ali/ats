@@ -2,8 +2,8 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 
 from alembic import command
-from sqlalchemy import text
 from alembic.config import Config
+from sqlalchemy import text
 
 from job_hire_ai.database.models import Candidate, CandidateDocument, JobApplication
 from job_hire_ai.runtime import Runtime
