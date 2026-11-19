@@ -177,7 +177,9 @@ class JobMatchingService:
                         "REVIEW_REQUIRED"
                         if criterion.evidence_status != "VERIFIED"
                         and not criterion.evidence_acknowledged
-                        else "EVIDENCED" if hits else "NOT_EVIDENCED"
+                        else "EVIDENCED" if hits
+                        else "REVIEW_REQUIRED" if profile.analysis_status == "NEEDS_REVIEW"
+                        else "NOT_EVIDENCED"
                     ),
                     "evidence": hits,
                     "method": MATCH_VERSION,
