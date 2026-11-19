@@ -142,10 +142,16 @@ def render_ai_requirements(ats, vacancy):
 
 
 def _read_only(configuration):
+    provenance = (
+        "System default — not HR reviewed"
+        if configuration.approved_by == "SYSTEM_DEFAULT_NOT_HR"
+        else "JD-entered manual weights"
+        if configuration.approved_by == "USER_ENTERED_JD_WEIGHTS"
+        else configuration.approved_by or "not recorded"
+    )
     st.caption(
         f"{configuration.status} · created {configuration.created_at} UTC · "
-        f"approved {configuration.approved_at or '—'} · "
-        f"source {('System default — not HR reviewed' if configuration.approved_by == 'SYSTEM_DEFAULT_NOT_HR' else 'JD-entered manual weights' if configuration.approved_by == 'USER_ENTERED_JD_WEIGHTS' else configuration.approved_by or 'not recorded')}"
+        f"activated {configuration.approved_at or '—'} · source: {provenance}"
     )
     st.code(configuration.job_description_hash, language=None)
     st.dataframe(
