@@ -592,13 +592,17 @@ class PipelineService:
         return False
 
     def process_scoring_next(self) -> bool:
-        """Record evidence coverage only after successful job matching."""
+        """Score the next eligible CV; an unconfigured JD cannot block other CVs."""
         if not self.scoring_enabled:
             return False
         with self.db.transaction() as session:
             match_stage = aliased(DocumentPipelineStage)
-            stage_id = session.scalar(
-                select(DocumentPipelineStage.id)
+            candidates = list(session.execute(
+                select(
+                    DocumentPipelineStage.id,
+                    DocumentPipelineStage.document_id,
+                    CandidateDocument.vacancy_id,
+                )
                 .join(
                     match_stage,
                     match_stage.document_id == DocumentPipelineStage.document_id,
@@ -616,9 +620,23 @@ class PipelineService:
                     JobApplication.status == "Uploaded",
                 )
                 .order_by(DocumentPipelineStage.id)
-                .limit(1)
-            )
-            if stage_id is not None:
+            ))
+
+        for stage_id, document_id, vacancy_id in candidates:
+            # Check eligibility before claiming the stage. Otherwise the first
+            # unconfigured JD can block every other CV in the queue indefinitely.
+            if not self.matcher.ready(vacancy_id):
+                with self.db.transaction() as session:
+                    stage = session.get(DocumentPipelineStage, stage_id)
+                    if stage is not None and stage.status in ("PENDING", "WAITING"):
+                        stage.status = "WAITING"
+                        stage.error_summary = (
+                            "No activated JD criteria. Use default weighting in Job "
+                            "Management or enter manual criteria; other CVs continue."
+                        )
+                continue
+
+            with self.db.transaction() as session:
                 claimed = session.execute(
                     update(DocumentPipelineStage)
                     .where(
@@ -627,43 +645,31 @@ class PipelineService:
                     )
                     .values(
                         status="RUNNING", started_at=now(), completed_at=None,
-                        error_summary=None, attempts=DocumentPipelineStage.attempts + 1,
+                        error_summary=None,
+                        attempts=DocumentPipelineStage.attempts + 1,
                     )
                 ).rowcount
-                if not claimed:
-                    return True
-                document_id = session.get(DocumentPipelineStage, stage_id).document_id
-        if stage_id is None:
-            return False
+            if not claimed:
+                return True
 
-        # Semantic relevance is not a weighted evidence score.
-        with self.db.transaction() as session:
-            document = session.get(CandidateDocument, document_id)
-            vacancy_id = document.vacancy_id
-        if not self.matcher.ready(vacancy_id):
+            started = time.perf_counter()
+            error = None
+            try:
+                self.scorer.score_document(document_id)
+            except ATSError as exc:
+                error = str(exc)[:500]
+            except Exception:
+                logger.exception("Unexpected scoring failure for CV %s", document_id)
+                error = "Unexpected scoring failure; inspect the worker log."
             with self.db.transaction() as session:
                 stage = session.get(DocumentPipelineStage, stage_id)
                 if stage is not None:
-                    stage.status = "WAITING"
-                    stage.error_summary = "HR-approved criteria required for evidence scoring."
-            return False
-        started = time.perf_counter()
-        error = None
-        try:
-            self.scorer.score_document(document_id)
-        except ATSError as exc:
-            error = str(exc)[:500]
-        except Exception:
-            logger.exception("Unexpected scoring failure for CV %s", document_id)
-            error = "Unexpected scoring failure; inspect the worker log."
-        with self.db.transaction() as session:
-            stage = session.get(DocumentPipelineStage, stage_id)
-            if stage is not None:
-                stage.status = "FAILED" if error else "COMPLETED"
-                stage.error_summary = error
-                stage.completed_at = now()
-                stage.duration_ms = round((time.perf_counter() - started) * 1000)
-        return True
+                    stage.status = "FAILED" if error else "COMPLETED"
+                    stage.error_summary = error
+                    stage.completed_at = now()
+                    stage.duration_ms = round((time.perf_counter() - started) * 1000)
+            return True
+        return False
 
     def _index_next_jd(self) -> bool:
         """Refresh changed job descriptions without blocking CV processing."""
