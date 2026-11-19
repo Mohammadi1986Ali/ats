@@ -22,6 +22,6 @@ def upgrade():
 
 
 def downgrade():
-    with op.batch_alter_table("vacancies") as batch:
-        batch.drop_column("weighting_rules")
-        batch.drop_column("weighting_mode")
+    # Direct DROP COLUMN preserves SQLite foreign keys from existing applications.
+    op.drop_column("vacancies", "weighting_rules")
+    op.drop_column("vacancies", "weighting_mode")
