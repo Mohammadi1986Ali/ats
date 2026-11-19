@@ -18,7 +18,7 @@ from job_hire_ai.storage import LocalStorage
 from job_hire_ai.workers.local_lock import worker_lock
 
 CONFIRMATION = "DELETE ALL ATS DATA"
-_KEY = re.compile(r"^[a-f0-9]{32}\\.(?:pdf|docx)$")
+_KEY = re.compile(r"^[a-f0-9]{32}\.(?:pdf|docx)$")
 
 
 def reset_ats_data(db, storage: LocalStorage, data_dir: Path) -> dict:
