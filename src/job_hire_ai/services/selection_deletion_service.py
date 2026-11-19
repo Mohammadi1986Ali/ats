@@ -3,11 +3,25 @@
 from sqlalchemy import delete, select
 
 from job_hire_ai.database.models import (
-    Candidate, CandidateDocument, CandidateProfile, CandidateScoreSnapshot,
-    CriteriaConfiguration, CVAnalysisBatch, CVAnalysisJob, CVAnalysisRun,
-    DocumentPipelineStage, DocumentTextExtraction, EmbeddingChunk,
-    EvidenceReference, JobAnalysisRun, JobApplication, JobCriterion,
-    JobMatchResult, ProfileReviewEvent, SemanticMatchResult, Vacancy,
+    Candidate,
+    CandidateDocument,
+    CandidateProfile,
+    CandidateScoreSnapshot,
+    CriteriaConfiguration,
+    CVAnalysisBatch,
+    CVAnalysisJob,
+    CVAnalysisRun,
+    DocumentPipelineStage,
+    DocumentTextExtraction,
+    EmbeddingChunk,
+    EvidenceReference,
+    JobAnalysisRun,
+    JobApplication,
+    JobCriterion,
+    JobMatchResult,
+    ProfileReviewEvent,
+    SemanticMatchResult,
+    Vacancy,
 )
 from job_hire_ai.errors import ATSError
 
@@ -59,9 +73,6 @@ class SelectionDeletionService:
             ).limit(1)):
                 raise ATSError("A selected job has processing CVs. Stop worker first.")
             candidate_ids = list(session.scalars(select(JobApplication.candidate_id).where(
-                JobApplication.vacancy_id.in_(ids)
-            )))
-            app_ids = list(session.scalars(select(JobApplication.id).where(
                 JobApplication.vacancy_id.in_(ids)
             )))
             if doc_ids:
