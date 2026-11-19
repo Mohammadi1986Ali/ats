@@ -6,6 +6,8 @@ class VacancyInput(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     description: str = Field(min_length=1, max_length=100000)
     department: str | None = Field(default=None, max_length=200)
+    weighting_mode: str = Field(default="MANUAL", pattern="^(MANUAL|DEFAULT)$")
+    weighting_rules: str = Field(default="", max_length=10000)
 
 
 class UploadResult(BaseModel):
