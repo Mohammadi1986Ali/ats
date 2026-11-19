@@ -15,10 +15,15 @@ from job_hire_ai.workers.automatic_profile_recovery import (
 def test_employment_formats_are_source_backed_not_inferred():
     source = [
         {"reference": "pdf:p1:block1", "text": "PROFESSIONAL EXPERIENCE"},
-        {"reference": "pdf:p1:block2", "text": "Senior Software Engineer\nblu Bank\nJan 2020 – Present"},
+        {"reference": "pdf:p1:block2", "text": (
+            "Senior Software Engineer\nblu Bank\nJan 2020 – Present"
+        )},
         {"reference": "pdf:p1:block3", "text": "Backend Developer | MEBank | Feb 2016 - Dec 2019"},
         {"reference": "pdf:p2:block1", "text": "ACADEMIC BACKGROUND"},
-        {"reference": "pdf:p2:block2", "text": "Master of Science: Data Driven Business\nThe Hague University of Applied Sciences"},
+        {"reference": "pdf:p2:block2", "text": (
+            "Master of Science: Data Driven Business\n"
+            "The Hague University of Applied Sciences"
+        )},
     ]
     result = extract_literal_skills(source)
     assert [(r.employer, r.job_title) for r in result.employment_history] == [
@@ -58,10 +63,17 @@ def test_previous_partial_profile_requeues_all_dependent_stages(ats, vacancy, pd
                 )
             )
         }
-        for name in ("EMBEDDING", "PROFILE_EXTRACTION", "EVIDENCE_VALIDATION", "MATCHING", "SCORING"):
+        for name in (
+            "EMBEDDING", "PROFILE_EXTRACTION", "EVIDENCE_VALIDATION",
+            "MATCHING", "SCORING",
+        ):
             rows[name].status = "COMPLETED"
     from job_hire_ai.database.models import (
-        CandidateProfile, CVAnalysisBatch, CVAnalysisJob, CVAnalysisRun, DocumentTextExtraction,
+        CandidateProfile,
+        CVAnalysisBatch,
+        CVAnalysisJob,
+        CVAnalysisRun,
+        DocumentTextExtraction,
     )
     with ats.db.transaction() as session:
         extraction = session.scalar(select(DocumentTextExtraction))
