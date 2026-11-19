@@ -83,9 +83,23 @@ def main() -> None:
                 recovered = recover_legacy_jd_weights(db)
                 logging.info("Legacy JD weighting recovery: %s", recovered)
             logging.info("Automatic CV text worker started")
+            last_jd_check = time.monotonic()
             while True:
-                if not service.process_next():
-                    time.sleep(2)
+                if service.process_next():
+                    continue
+                # Jobs may be created while the background worker is alive.
+                # Recover eligible default-weight JDs without requiring restart.
+                if settings.matching_enabled and settings.scoring_enabled:
+                    current = time.monotonic()
+                    if current - last_jd_check >= 30:
+                        last_jd_check = current
+                        try:
+                            outcomes = recover_legacy_jd_weights(db)
+                            if outcomes:
+                                logging.info("Automatic JD criteria recovery: %s", outcomes)
+                        except Exception:
+                            logging.exception("JD criteria recovery failed; worker continues")
+                time.sleep(2)
     except ATSError as exc:
         # Another healthy worker owns the lock; extra startup instances simply exit.
         logging.info("CV text worker not started: %s", exc)
