@@ -35,6 +35,53 @@ def criterion_input(criterion):
     )
 
 
+
+
+def default_weights(criteria):
+    """Deterministic percentages based on extracted JD requirement types.
+
+    The model extracts the criteria; it does not invent or approve hiring weights.
+    REQUIRED receives three shares, PREFERRED and UNCLEAR receive one.
+    """
+    if not criteria:
+        raise ATSError("No requirements were extracted from this job description.")
+    shares = [
+        3 if row.requirement_type == "REQUIRED" else 1 for row in criteria
+    ]
+    total = sum(shares)
+    whole = [100 * share // total for share in shares]
+    remaining = 100 - sum(whole)
+    # Stable largest-remainder allocation: no rounding drift.
+    order = sorted(
+        range(len(criteria)),
+        key=lambda i: (-(100 * shares[i] % total), criteria[i].display_order),
+    )
+    for i in order[:remaining]:
+        whole[i] += 1
+    return whole
+
+
+def parse_manual_weights(raw):
+    """Accept one exact model-extracted criterion name and integer weight per line."""
+    result = {}
+    for line in raw.splitlines():
+        if not line.strip():
+            continue
+        if "=" not in line:
+            raise ATSError("Manual weights must use 'Criterion name = 25' per line.")
+        name, weight = (part.strip() for part in line.split("=", 1))
+        key = name.casefold()
+        if not name or key in result or not weight.isdecimal():
+            raise ATSError("Each criterion name must be unique and have an integer weight.")
+        number = int(weight)
+        if not 0 <= number <= 100:
+            raise ATSError("Each weight must be between 0 and 100.")
+        result[key] = number
+    if not result or sum(result.values()) != 100:
+        raise ATSError("Enter manual criterion weights totaling exactly 100%.")
+    return result
+
+
 class CriteriaService:
     def __init__(self, db):
         self.db = db
@@ -233,5 +280,61 @@ class CriteriaService:
                 session.flush()
             draft.status = "APPROVED"
             draft.approved_at, draft.approved_by = now(), reviewer
+            session.flush()
+            return draft.version
+
+    def activate_entered_weights(self, draft_id: int, *, mode: str, rules: str = ""):
+        """Apply JD-time weights and activate a saved, auditable configuration.
+
+        System defaults are identified by SYSTEM_DEFAULT, not attributed to HR.
+        Only source-verified criteria can be activated without a human review.
+        """
+        if mode not in {"DEFAULT", "MANUAL"}:
+            raise ATSError("Invalid weighting mode.")
+        manual = parse_manual_weights(rules) if mode == "MANUAL" else None
+        with self.db.transaction() as session:
+            draft = session.get(CriteriaConfiguration, draft_id)
+            if draft is None or draft.status != "DRAFT":
+                raise ATSError("A current editable job-criteria draft is required.")
+            vacancy = self._vacancy(session, draft.vacancy_id)
+            if draft.job_description_hash != description_hash(vacancy.description):
+                raise ATSError("The JD changed during criteria extraction. Analyze again.")
+            criteria = sorted(draft.criteria, key=lambda row: row.display_order)
+            if not criteria:
+                raise ATSError("The model extracted no job requirements.")
+            if manual is not None:
+                names = [row.name.casefold() for row in criteria]
+                if len(names) != len(set(names)) or set(names) != set(manual):
+                    raise ATSError(
+                        "Manual weight names must exactly match the extracted JD criteria. "
+                        "Edit the saved draft to resolve differences."
+                    )
+                weights = [manual[row.name.casefold()] for row in criteria]
+            else:
+                weights = default_weights(criteria)
+            for row, weight in zip(criteria, weights, strict=True):
+                row.weight = weight
+            # Do not silently acknowledge model excerpts without textual support.
+            if any(row.evidence_status != "VERIFIED" for row in criteria):
+                raise ATSError(
+                    "Some model-extracted JD excerpts were not verified. "
+                    "Review the draft; automatic activation is blocked."
+                )
+            # The existing database approval trigger validates evidence + total.
+            previous = session.scalar(
+                select(CriteriaConfiguration).where(
+                    CriteriaConfiguration.vacancy_id == draft.vacancy_id,
+                    CriteriaConfiguration.status == "APPROVED",
+                )
+            )
+            if previous is not None:
+                previous.status = "SUPERSEDED"
+                session.flush()
+            draft.status = "APPROVED"
+            draft.approved_at = now()
+            draft.approved_by = (
+                "SYSTEM_DEFAULT_NOT_HR" if mode == "DEFAULT"
+                else "USER_ENTERED_JD_WEIGHTS"
+            )
             session.flush()
             return draft.version

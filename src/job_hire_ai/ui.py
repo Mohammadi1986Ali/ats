@@ -69,13 +69,47 @@ def _open_job(vacancy_id):
     st.session_state.job_status_filter = "All"
 
 
-def validated_vacancy(title, department, description):
+def validated_vacancy(title, department, description, default_weights=True, rules=""):
     try:
-        return VacancyInput(title=title, department=department or None, description=description)
+        return VacancyInput(
+            title=title,
+            department=department or None,
+            description=description,
+            weighting_mode="DEFAULT" if default_weights else "MANUAL",
+            weighting_rules="" if default_weights else rules.strip(),
+        )
     except ValidationError:
         raise ATSError(
             "Enter a title (1–200 characters) and a description (1–100,000 characters)."
         ) from None
+
+
+def _configure_jd_weighting(ats, vacancy_id):
+    """Analyze the saved JD and apply the weighting choice made on the JD form."""
+    vacancy = next(v for v in ats.vacancies.list() if v.id == vacancy_id)
+    history = ats.criteria.history(vacancy_id)
+    existing = next((c for c in history if c.status == "DRAFT"), None)
+    with st.spinner("Extracting JD requirements and applying selected weights…"):
+        draft_id = ats.job_analysis.analyze(vacancy_id, replace_draft=bool(existing))
+        ats.criteria.activate_entered_weights(
+            draft_id, mode=vacancy.weighting_mode, rules=vacancy.weighting_rules,
+        )
+
+
+def _weighting_fields(prefix, vacancy=None):
+    default = st.checkbox(
+        "Use default weighting (based on model-extracted JD requirements)",
+        value=vacancy.weighting_mode == "DEFAULT" if vacancy else True,
+        key=f"{prefix}_default_weights",
+    )
+    rules = st.text_area(
+        "Manual criteria weights (only when default is unchecked)",
+        value=vacancy.weighting_rules if vacancy else "",
+        placeholder="Java = 40\nSpring Boot = 35\nKafka = 25",
+        key=f"{prefix}_weight_rules",
+        help="One model-extracted criterion name = integer weight per line; total 100%.",
+    )
+    return default, rules
 
 
 def jobs(ats):
@@ -83,11 +117,26 @@ def jobs(ats):
     with st.expander("Create vacancy", expanded=not ats.vacancies.list()):
         with st.form("create_vacancy", clear_on_submit=True):
             title, department, description = vacancy_fields("new")
+            default, rules = _weighting_fields("new")
             submitted = st.form_submit_button("Create vacancy", type="primary")
         if submitted:
             try:
-                ats.vacancies.create(validated_vacancy(title, department, description))
-                notify("Vacancy created.")
+                if not default:
+                    from job_hire_ai.services.criteria_service import parse_manual_weights
+
+                    parse_manual_weights(rules)
+                vacancy = ats.vacancies.create(
+                    validated_vacancy(title, department, description, default, rules)
+                )
+                try:
+                    _configure_jd_weighting(ats, vacancy.id)
+                except ATSError as exc:
+                    st.warning(
+                        f"Job saved, but JD criteria could not be activated: {exc}. "
+                        "Use the retry control below after reviewing the draft."
+                    )
+                else:
+                    notify("Job created with JD-time weighting configuration.")
             except ATSError as exc:
                 st.error(str(exc))
     status = st.selectbox("Status filter", ["All", "Active", "Archived"], key="job_status_filter")
@@ -126,11 +175,30 @@ def jobs(ats):
     st.caption(f"Status: {vacancy.status} · ID: {vacancy.id}")
     with st.form(f"edit_{vacancy.id}"):
         title, department, description = vacancy_fields(f"edit_{vacancy.id}", vacancy)
+        default, rules = _weighting_fields(f"edit_{vacancy.id}", vacancy)
         saved = st.form_submit_button("Save changes", type="primary")
     if saved:
         try:
-            ats.vacancies.edit(vacancy.id, validated_vacancy(title, department, description))
-            notify("Vacancy updated.")
+            if not default:
+                from job_hire_ai.services.criteria_service import parse_manual_weights
+
+                parse_manual_weights(rules)
+            values = validated_vacancy(title, department, description, default, rules)
+            changed = (
+                description != vacancy.description
+                or values.weighting_mode != vacancy.weighting_mode
+                or values.weighting_rules != vacancy.weighting_rules
+            )
+            ats.vacancies.edit(vacancy.id, values)
+            if changed:
+                try:
+                    _configure_jd_weighting(ats, vacancy.id)
+                except ATSError as exc:
+                    st.warning(f"Job saved; JD criteria activation needs attention: {exc}")
+                else:
+                    notify("JD weighting updated and applied.")
+            else:
+                notify("Vacancy updated.")
         except ATSError as exc:
             st.error(str(exc))
     target = "Archived" if vacancy.status == "Active" else "Active"
@@ -138,6 +206,17 @@ def jobs(ats):
         try:
             ats.vacancies.set_status(vacancy.id, target)
             notify(f"Vacancy is now {target.lower()}. Historical applications are retained.")
+        except ATSError as exc:
+            st.error(str(exc))
+    st.caption(
+        "Weighting: "
+        + ("System default (not HR-approved)" if vacancy.weighting_mode == "DEFAULT"
+           else "Manual weights supplied during JD entry")
+    )
+    if st.button("Retry JD extraction and apply saved weighting", key=f"retry_jd_{vacancy.id}"):
+        try:
+            _configure_jd_weighting(ats, vacancy.id)
+            notify("Saved JD weights applied.")
         except ATSError as exc:
             st.error(str(exc))
     render_ai_requirements(ats, vacancy)

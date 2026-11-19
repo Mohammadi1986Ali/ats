@@ -227,8 +227,8 @@ def monitor_live(ats):
                              hide_index=True, width="stretch")
             elif not ats.job_matching.ready(selected.id):
                 st.info(
-                    "Scoring is waiting for HR-approved criteria for the current "
-                    "job description. Semantic matching alone does not enable scoring."
+                    "Scoring is waiting for activated JD criteria for the current "
+                    "job description. Choose default or manual weights in Job Management."
                 )
             else:
                 st.info(
