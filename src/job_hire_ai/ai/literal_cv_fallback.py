@@ -44,8 +44,8 @@ FALLBACK_WARNING = (
 # A conservative parser for CV sections with clear role/date and degree patterns.
 # Never infer employment dates, jobs, institutions, or competencies.
 SECTION_PATTERN = re.compile(
-    r"^(EXPERIENCE|WORK EXPERIENCE|EMPLOYMENT|EMPLOYMENT HISTORY|"
-    r"PROFESSIONAL EXPERIENCE|EDUCATION|QUALIFICATIONS|SKILLS|TECHNICAL SKILLS|"
+    r"^(PROFESSIONAL EXPERIENCE|WORK EXPERIENCE|EMPLOYMENT HISTORY|EXPERIENCE|EMPLOYMENT|"
+    r"EDUCATION|ACADEMIC BACKGROUND|QUALIFICATIONS|TECHNICAL SKILLS|SKILLS|"
     r"LANGUAGES|CERTIFICATIONS|PROJECTS|SUMMARY)\b",
     re.IGNORECASE,
 )
@@ -83,94 +83,129 @@ def _source_lines(segments: list[dict]) -> list[tuple[str, str]]:
     return result
 
 
+def _employment_entry(lines: list[tuple[str, str]], offset: int):
+    """Find literal employer, title and dates in common adjacent CV layouts."""
+    near = lines[offset:offset + 3]
+    if len(near) < 2:
+        return None
+    # Employer / role / date, role / employer / date, or date / role / employer.
+    candidates = []
+    if len(near) == 3:
+        candidates.extend([
+            (near[0], near[1], near[2]),
+            (near[1], near[0], near[2]),
+            (near[2], near[1], near[0]),
+        ])
+    for employer, role, date in candidates:
+        dates = DATE_RANGE.fullmatch(date[0])
+        if (
+            dates and ROLE.search(role[0]) and not ROLE.search(employer[0])
+            and len(employer[0]) <= 100 and len(role[0]) <= 120
+            and not employer[0].startswith(("•", "-", "*"))
+        ):
+            return employer, role, date, dates
+    # Many CVs format a row as "Senior Engineer | Company | Jan 2020 - Present".
+    line, ref = near[0]
+    parts = [part.strip() for part in re.split(r"\\s+[|•]\\s+|\\s+@\\s+", line)]
+    if len(parts) == 3:
+        for role_idx, employer_idx in ((0, 1), (1, 0)):
+            dates = DATE_RANGE.fullmatch(parts[2])
+            if dates and ROLE.search(parts[role_idx]) and not ROLE.search(parts[employer_idx]):
+                return (
+                    (parts[employer_idx], ref), (parts[role_idx], ref),
+                    (parts[2], ref), dates,
+                )
+    return None
+
+
 def _extract_clear_records(segments: list[dict], values: dict) -> None:
     section = None
     lines = _source_lines(segments)
-    # Preserve source boundaries and avoid guessed records from prose.
     section_lines = []
+
+    def finish_section():
+        if section == "experience":
+            seen = set()
+            for i in range(len(section_lines)):
+                item = _employment_entry(section_lines, i)
+                if item is None:
+                    continue
+                employer, role, date, dates = item
+                key = (employer[0].casefold(), role[0].casefold(), date[0])
+                if key in seen:
+                    continue
+                seen.add(key)
+                end = dates.group("end")
+                values["employment_history"].append({
+                    "employer": employer[0],
+                    "job_title": role[0],
+                    "start_date": dates.group("start"),
+                    "end_date": end,
+                    "currently_employed": end.casefold() in {"present", "current", "now"},
+                    "employment_type": dates.group("type"),
+                    "responsibilities": [],
+                    "technologies": [],
+                    "evidence": [
+                        {"source_excerpt": text, "source_reference": source}
+                        for text, source in (employer, role, date)
+                    ],
+                    "claim_status": "UNCERTAIN",
+                    "uncertainty": "Literal job entry; duties and duration need human review.",
+                })
+                if len(values["employment_history"]) >= 100:
+                    break
+        elif section == "education":
+            for i, (line, ref) in enumerate(section_lines):
+                degree = DEGREE.fullmatch(line)
+                if degree is None:
+                    continue
+                institution = None
+                evidence = [{"source_excerpt": line, "source_reference": ref}]
+                if i + 1 < len(section_lines):
+                    candidate, candidate_ref = section_lines[i + 1]
+                    if (
+                        re.search(
+                            r"\\b(university|college|institute|school|polytechnic)\\b",
+                            candidate, re.IGNORECASE,
+                        )
+                        and not DEGREE.match(candidate)
+                    ):
+                        institution = candidate
+                        evidence.append({
+                            "source_excerpt": candidate, "source_reference": candidate_ref,
+                        })
+                values["education"].append({
+                    "institution": institution,
+                    "degree": degree.group("degree"),
+                    "field_of_study": degree.group("field").strip() or None,
+                    "start_date": None,
+                    "graduation_date": None,
+                    "evidence": evidence,
+                    "claim_status": "UNCERTAIN",
+                    "uncertainty": "Literal degree entry; dates and institution require review.",
+                })
+                if len(values["education"]) >= 50:
+                    break
+
     for line, ref in lines + [("SUMMARY", "")]:
         match = SECTION_PATTERN.match(line)
-        is_heading = bool(match and (
-            line.upper() == match.group(1).upper()
-            or re.fullmatch(re.escape(match.group(1)) + r"[\s:—–-]*", line, re.IGNORECASE)
+        heading = bool(match and re.fullmatch(
+            re.escape(match.group(1)) + r"[\\s:—–-]*",
+            line, re.IGNORECASE,
         ))
-        if is_heading:
-            if section == "experience":
-                for i in range(len(section_lines) - 2):
-                    employer, role, date = section_lines[i:i + 3]
-                    dates = DATE_RANGE.fullmatch(date[0])
-                    if (
-                        dates and ROLE.search(role[0])
-                        and len(employer[0]) <= 100 and len(role[0]) <= 120
-                        and not employer[0].startswith(("•", "-", "*"))
-                        and not role[0].startswith(("•", "-", "*"))
-                    ):
-                        start = dates.group("start")
-                        end = dates.group("end")
-                        values["employment_history"].append({
-                            "employer": employer[0],
-                            "job_title": role[0],
-                            "start_date": start,
-                            "end_date": end,
-                            "currently_employed": end.casefold() in {"present", "current", "now"},
-                            "employment_type": dates.group("type"),
-                            "responsibilities": [],
-                            "technologies": [],
-                            "evidence": [
-                                {"source_excerpt": text, "source_reference": source}
-                                for text, source in (employer, role, date)
-                            ],
-                            "claim_status": "UNCERTAIN",
-                            "uncertainty": (
-                                "Explicit role and date lines; details require review."
-                            ),
-                        })
-                        if len(values["employment_history"]) >= 100:
-                            break
-            elif section == "education":
-                for i, (text, source) in enumerate(section_lines):
-                    degree = DEGREE.fullmatch(text)
-                    if not degree:
-                        continue
-                    institution = None
-                    evidence = [{"source_excerpt": text, "source_reference": source}]
-                    if i + 1 < len(section_lines):
-                        following, following_ref = section_lines[i + 1]
-                        if (
-                            re.search(r"\b(university|college|institute|school|polytechnic)\b",
-                                      following, re.IGNORECASE)
-                            and not DEGREE.match(following)
-                        ):
-                            institution = following
-                            evidence.append({
-                                "source_excerpt": following,
-                                "source_reference": following_ref,
-                            })
-                    values["education"].append({
-                        "institution": institution,
-                        "degree": degree.group("degree"),
-                        "field_of_study": degree.group("field").strip() or None,
-                        "start_date": None,
-                        "graduation_date": None,
-                        "evidence": evidence,
-                        "claim_status": "UNCERTAIN",
-                        "uncertainty": (
-                            "Literal education entry; missing dates/institutions are unknown."
-                        ),
-                    })
-                    if len(values["education"]) >= 50:
-                        break
+        if heading:
+            finish_section()
             section_lines = []
-            heading = match.group(1).upper()
+            value = match.group(1).upper()
             section = (
-                "experience" if heading in {
+                "experience" if value in {
                     "EXPERIENCE", "WORK EXPERIENCE", "EMPLOYMENT",
                     "EMPLOYMENT HISTORY", "PROFESSIONAL EXPERIENCE",
                 }
-                else "education" if heading in {"EDUCATION", "QUALIFICATIONS"}
+                else "education" if value in {"EDUCATION", "ACADEMIC BACKGROUND", "QUALIFICATIONS"}
                 else None
             )
-        elif section:
+        elif section is not None:
             section_lines.append((line, ref))
 
 
