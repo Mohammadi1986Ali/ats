@@ -4,8 +4,12 @@ import pytest
 from sqlalchemy import select
 
 from job_hire_ai.database.models import (
-    CandidateDocument, CandidateScoreSnapshot, DocumentPipelineStage,
-    EmbeddingChunk, JobApplication, Vacancy,
+    CandidateDocument,
+    CandidateScoreSnapshot,
+    DocumentPipelineStage,
+    EmbeddingChunk,
+    JobApplication,
+    Vacancy,
 )
 from job_hire_ai.errors import ATSError
 from job_hire_ai.schemas import VacancyInput
