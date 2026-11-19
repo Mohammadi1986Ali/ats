@@ -155,8 +155,8 @@ def upgrade_old_fast_profiles_once(db, data_dir: Path) -> dict[int, str]:
                     stage.completed_at = None
             outcomes[document.id] = "Requeued partial profile"
     marker.write_text(
-        FAST_PROFILE_RECOVERY_VERSION + "\\n"
-        + "Requeued: " + ",".join(str(i) for i in outcomes) + "\\n",
+        FAST_PROFILE_RECOVERY_VERSION + "\n"
+        + "Requeued: " + ",".join(str(i) for i in outcomes) + "\n",
         encoding="utf-8",
     )
     logger.info("Structured CV profile upgrade: %d requeued", len(outcomes))
