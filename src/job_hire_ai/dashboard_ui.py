@@ -1,8 +1,6 @@
 """Job-first dashboard and live pipeline monitor backed only by persisted ATS records."""
 
 import pandas as pd
-
-from job_hire_ai.errors import ATSError
 import streamlit as st
 
 from job_hire_ai.dashboard_view import (
@@ -15,6 +13,7 @@ from job_hire_ai.dashboard_view import (
     job_pulses,
     stage_breakdown,
 )
+from job_hire_ai.errors import ATSError
 
 
 def _open_job(vacancy_id: int) -> None:
