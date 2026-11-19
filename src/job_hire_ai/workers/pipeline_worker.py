@@ -14,7 +14,10 @@ from job_hire_ai.services.document_service import DocumentService
 from job_hire_ai.services.pipeline_service import PipelineService
 from job_hire_ai.settings import Settings
 from job_hire_ai.storage import LocalStorage
-from job_hire_ai.workers.automatic_profile_recovery import recover_legacy_profiles_once
+from job_hire_ai.workers.automatic_profile_recovery import (
+    recover_legacy_profiles_once,
+    upgrade_old_fast_profiles_once,
+)
 from job_hire_ai.workers.local_lock import worker_lock
 
 
@@ -66,6 +69,8 @@ def main() -> None:
         with worker_lock(settings.directory / "pipeline-text-worker.lock"):
             service.recover_interrupted()
             if analyzer is not None:
+                if analyzer.settings.cv_fast_mode_1b and analyzer.settings.cv_literal_fallback_enabled:
+                    upgrade_old_fast_profiles_once(db, settings.directory)
                 recover_legacy_profiles_once(
                     db, settings.directory,
                     fallback_enabled=analyzer.settings.cv_literal_fallback_enabled,
