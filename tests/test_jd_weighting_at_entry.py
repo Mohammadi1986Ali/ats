@@ -91,8 +91,9 @@ def test_incomplete_manual_names_leave_editable_draft(jd_draft, ats):
 def test_unverified_extraction_cannot_be_auto_activated(jd_draft, ats):
     _, draft_id = jd_draft
     with ats.db.transaction() as session:
-        from job_hire_ai.database.models import JobCriterion
         from sqlalchemy import select
+
+        from job_hire_ai.database.models import JobCriterion
         row = session.scalar(select(JobCriterion).where(
             JobCriterion.configuration_id == draft_id
         ))
