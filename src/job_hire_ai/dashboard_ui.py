@@ -1,6 +1,8 @@
 """Job-first dashboard and live pipeline monitor backed only by persisted ATS records."""
 
 import pandas as pd
+
+from job_hire_ai.errors import ATSError
 import streamlit as st
 
 from job_hire_ai.dashboard_view import (
@@ -157,6 +159,32 @@ def monitor_live(ats):
     rows = document_rows(all_items, query, state)
     st.caption(f"Showing {len(rows)} of {len(all_items)} CVs for this Job")
     if rows:
+        with st.expander("Delete selected CVs", expanded=False):
+            options = {row["CV ID"]: row["Filename"] for row in rows}
+            chosen = st.multiselect(
+                "Select CV records to delete",
+                list(options),
+                format_func=lambda doc_id: f"CV {doc_id} · {options[doc_id]}",
+                key=f"delete_cv_ids_{selected.id}",
+            )
+            confirm = st.checkbox(
+                f"I confirm permanent deletion of {len(chosen)} selected CV(s) "
+                "and their extracted results.",
+                key=f"confirm_cv_delete_{selected.id}",
+            )
+            if st.button(
+                "Delete selected CVs", type="primary",
+                disabled=not chosen or not confirm,
+                key=f"delete_cv_action_{selected.id}",
+            ):
+                try:
+                    count = ats.deletion.delete_documents(chosen, selected.id)
+                    st.session_state.pop(f"delete_cv_ids_{selected.id}", None)
+                    st.session_state.pop(f"confirm_cv_delete_{selected.id}", None)
+                    st.success(f"Deleted {count} selected CV(s).")
+                    st.rerun()
+                except ATSError as exc:
+                    st.error(str(exc))
         st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch",
                      height=min(640, max(210, 36 * (len(rows) + 1))))
         selected_id = st.selectbox("Inspect an individual CV", [r["CV ID"] for r in rows],
