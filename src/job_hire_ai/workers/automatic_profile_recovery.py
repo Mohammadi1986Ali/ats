@@ -13,6 +13,7 @@ from sqlalchemy.orm import aliased
 
 from job_hire_ai.database.models import (
     CandidateDocument,
+    CandidateProfile,
     DocumentPipelineStage,
     JobApplication,
 )
@@ -87,3 +88,76 @@ def recover_legacy_profiles_once(db, data_dir: Path, *, fallback_enabled: bool) 
         sum(value == "Requeued" for value in results.values()),
     )
     return results
+
+
+FAST_PROFILE_RECOVERY_VERSION = "structured-source-profile-v2"
+
+
+def upgrade_old_fast_profiles_once(db, data_dir: Path) -> dict[int, str]:
+    """Upgrade old literal-only profiles once, preserving review history and originals.
+
+    Called while holding the exclusive worker lock, before normal processing.
+    Never reruns a reviewed profile and never touches CV/embeddings.
+    """
+    data_dir.mkdir(parents=True, exist_ok=True)
+    marker = data_dir / f".{FAST_PROFILE_RECOVERY_VERSION}.done"
+    if marker.exists():
+        return {}
+    outcomes = {}
+    with db.transaction() as session:
+        documents = session.scalars(
+            select(CandidateDocument)
+            .join(JobApplication, CandidateDocument.application_id == JobApplication.id)
+            .where(JobApplication.status == "Uploaded")
+        ).all()
+        for document in documents:
+            current = session.scalar(
+                select(CandidateProfile)
+                .where(CandidateProfile.document_id == document.id)
+                .order_by(CandidateProfile.id.desc()).limit(1)
+            )
+            if current is None:
+                continue
+            # Avoid replacing already reviewed/corrected profiles.
+            if current.reviews:
+                continue
+            if not any(
+                "PARTIAL DETERMINISTIC EXTRACTION (FAST 1B MODE)" in w
+                for w in (current.warnings or [])
+            ):
+                continue
+            stages = {
+                stage.stage: stage
+                for stage in session.scalars(
+                    select(DocumentPipelineStage).where(
+                        DocumentPipelineStage.document_id == document.id
+                    )
+                )
+            }
+            extraction = stages.get("PROFILE_EXTRACTION")
+            embedding = stages.get("EMBEDDING")
+            if (
+                extraction is None or embedding is None
+                or extraction.status != "COMPLETED"
+                or embedding.status != "COMPLETED"
+            ):
+                continue
+            extraction.status = "PENDING"
+            extraction.error_summary = None
+            extraction.completed_at = None
+            # Later snapshots remain in DB for audit but the pipeline must
+            # generate fresh validation/matching for the new profile.
+            for name in ("EVIDENCE_VALIDATION", "MATCHING", "SCORING"):
+                stage = stages.get(name)
+                if stage is not None and stage.status != "RUNNING":
+                    stage.status = "WAITING"
+                    stage.error_summary = None
+                    stage.completed_at = None
+            outcomes[document.id] = "Requeued partial profile"
+    marker.write_text(
+        FAST_PROFILE_RECOVERY_VERSION + "\n"
+        + "Requeued: " + ",".join(str(i) for i in outcomes) + "\n",
+        encoding="utf-8",
+    )
+    logger.info("Structured CV profile upgrade: %d requeued", len(outcomes))
+    return outcomes
