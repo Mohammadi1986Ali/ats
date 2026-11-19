@@ -122,7 +122,7 @@ def _extract_clear_records(segments: list[dict], values: dict) -> None:
                             ],
                             "claim_status": "UNCERTAIN",
                             "uncertainty": (
-                                "Explicit section lines; role details and responsibilities need review."
+                                "Explicit role and date lines; details require review."
                             ),
                         })
                         if len(values["employment_history"]) >= 100:
