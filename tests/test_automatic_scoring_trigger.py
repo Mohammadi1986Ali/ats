@@ -3,7 +3,6 @@
 from sqlalchemy import select
 
 from job_hire_ai.database.models import (
-    CandidateDocument,
     CandidateScoreSnapshot,
     DocumentPipelineStage,
 )
