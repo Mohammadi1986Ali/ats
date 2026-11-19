@@ -66,7 +66,9 @@ def test_step1_data_and_cv_survive_upgrade_and_downgrade(tmp_path, pdf):
         assert ats.criteria.history(vacancy.id) == []
         command.downgrade(config, "5e9be2fa29c7")
         assert ats.documents.download(document_id)[1] == pdf
-        assert len(ats.applications.list()) == 1
+        # The latest ORM cannot query new vacancy fields on the deliberately old schema.
+        with ats.db.engine.connect() as connection:
+            assert connection.execute(text("SELECT COUNT(*) FROM job_applications")).scalar() == 1
         command.upgrade(config, "head")
         assert ats.documents.download(document_id)[1] == pdf
     finally:
