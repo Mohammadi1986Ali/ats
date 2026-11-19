@@ -1,9 +1,12 @@
+from datetime import UTC, datetime
+from types import SimpleNamespace
+
 from alembic import command
+from sqlalchemy import text
 from alembic.config import Config
 
 from job_hire_ai.database.models import Candidate, CandidateDocument, JobApplication
 from job_hire_ai.runtime import Runtime
-from job_hire_ai.schemas import VacancyInput
 from job_hire_ai.settings import ROOT, Settings
 
 
@@ -14,7 +17,24 @@ def test_step1_data_and_cv_survive_upgrade_and_downgrade(tmp_path, pdf):
     command.upgrade(config, "5e9be2fa29c7")
     ats = Runtime(settings)
     try:
-        vacancy = ats.vacancies.create(VacancyInput(title="Existing", description="Existing role"))
+        # Seed the original schema using original columns, not the latest ORM.
+        with ats.db.transaction() as session:
+            timestamp = datetime.now(UTC)
+            inserted = session.execute(
+                text(
+                    "INSERT INTO vacancies "
+                    "(title, department, description, status, created_at, updated_at) "
+                    "VALUES (:title, NULL, :description, :status, :created, :updated)"
+                ),
+                {
+                    "title": "Existing",
+                    "description": "Existing role",
+                    "status": "Active",
+                    "created": timestamp,
+                    "updated": timestamp,
+                },
+            )
+            vacancy = SimpleNamespace(id=inserted.lastrowid)
         # Seed genuine pre-pipeline records while the older schema is active.
         # The modern upload service must only run after the stage-table migration.
         extension, text_status = ats.documents.validator.validate("existing.pdf", pdf)
