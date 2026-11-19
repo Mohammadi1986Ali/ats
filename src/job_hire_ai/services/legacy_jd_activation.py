@@ -23,7 +23,8 @@ from job_hire_ai.services.criteria_service import CriteriaService, description_h
 
 logger = logging.getLogger(__name__)
 
-_WORD = lambda term: re.compile(r"(?<!\\w)" + re.escape(term) + r"(?!\\w)", re.IGNORECASE)
+def _word(term):
+    return re.compile(r"(?<!\\w)" + re.escape(term) + r"(?!\\w)", re.IGNORECASE)
 
 
 def literal_jd_criteria(description: str) -> list[CriterionInput]:
@@ -39,7 +40,7 @@ def literal_jd_criteria(description: str) -> list[CriterionInput]:
         chunks = re.split(r"(?<=[.!?])\\s+", description)
     for chunk in chunks:
         for term in sorted(KNOWN_TERMS, key=len, reverse=True):
-            match = _WORD(term).search(chunk)
+            match = _word(term).search(chunk)
             if match is None or term.casefold() in used:
                 continue
             # Avoid overlapping aliases: "Apache Kafka" rather than "Kafka".
@@ -48,7 +49,7 @@ def literal_jd_criteria(description: str) -> list[CriterionInput]:
                 for prior in used
             ):
                 continue
-            if any(_WORD(old).search(term) for old in used):
+            if any(_word(old).search(term) for old in used):
                 continue
             used.add(term.casefold())
             required = bool(re.search(
