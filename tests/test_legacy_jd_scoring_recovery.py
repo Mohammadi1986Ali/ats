@@ -8,6 +8,7 @@ from job_hire_ai.services.legacy_jd_activation import (
     literal_jd_criteria,
     recover_legacy_jd_weights,
 )
+from tests.test_job_matching import make_data
 
 
 def test_source_only_fallback_does_not_invent_requirements():
@@ -34,7 +35,7 @@ def test_legacy_job_with_uploaded_cv_gets_default_criteria(ats, vacancy, pdf):
 
 
 def test_existing_semantic_match_is_requeued_after_default_activation(ats, vacancy, pdf):
-    assert ats.documents.upload_batch(vacancy.id, [("old.pdf", pdf)])[0].success
+    make_data(ats, vacancy, pdf)
     with ats.db.transaction() as session:
         stage = session.scalar(
             select(DocumentPipelineStage).where(
