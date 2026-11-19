@@ -13,8 +13,8 @@ from job_hire_ai.services.document_service import DocumentService
 from job_hire_ai.services.embedding_service import LocalEmbedder
 from job_hire_ai.services.job_matching_service import JobMatchingService
 from job_hire_ai.services.pipeline_service import PipelineService
-from job_hire_ai.services.semantic_matching_service import SemanticMatchingService
 from job_hire_ai.services.selection_deletion_service import SelectionDeletionService
+from job_hire_ai.services.semantic_matching_service import SemanticMatchingService
 from job_hire_ai.services.semantic_search_service import SemanticSearchService
 from job_hire_ai.services.vacancy_service import VacancyService
 from job_hire_ai.settings import Settings
