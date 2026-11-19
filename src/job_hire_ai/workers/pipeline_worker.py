@@ -69,7 +69,10 @@ def main() -> None:
         with worker_lock(settings.directory / "pipeline-text-worker.lock"):
             service.recover_interrupted()
             if analyzer is not None:
-                if analyzer.settings.cv_fast_mode_1b and analyzer.settings.cv_literal_fallback_enabled:
+                if (
+                    analyzer.settings.cv_fast_mode_1b
+                    and analyzer.settings.cv_literal_fallback_enabled
+                ):
                     upgrade_old_fast_profiles_once(db, settings.directory)
                 recover_legacy_profiles_once(
                     db, settings.directory,
