@@ -1,6 +1,5 @@
 """Reset preserves schema/settings and removes all jobs, CVs and source files."""
 
-import pytest
 from sqlalchemy import inspect, select
 
 from job_hire_ai.database.models import Candidate, CandidateDocument, Vacancy
