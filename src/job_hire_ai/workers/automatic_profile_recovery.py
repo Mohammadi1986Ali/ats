@@ -90,7 +90,7 @@ def recover_legacy_profiles_once(db, data_dir: Path, *, fallback_enabled: bool) 
     return results
 
 
-FAST_PROFILE_RECOVERY_VERSION = "structured-source-profile-v2"
+FAST_PROFILE_RECOVERY_VERSION = "structured-source-profile-v3"
 
 
 def upgrade_old_fast_profiles_once(db, data_dir: Path) -> dict[int, str]:
