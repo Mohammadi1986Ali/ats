@@ -276,5 +276,5 @@ def test_uncertain_claim_is_not_documented_weight(ats, vacancy, pdf):
     JobMatchingService(ats.db).match_document(document_id)
     score = CandidateScoringService(ats.db).score_document(document_id)
     assert score.documented_weight == 0
-    assert score.unverified_weight == 100
-    assert score.review_weight == 0
+    assert score.unverified_weight == 0
+    assert score.review_weight == 100
