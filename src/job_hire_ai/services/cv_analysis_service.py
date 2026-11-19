@@ -202,7 +202,7 @@ class CVAnalysisService:
                     "wire": WIRE_VERSION,
                     "literal_fallback": self.settings.cv_literal_fallback_enabled,
                     "fast_mode_1b": self.settings.cv_fast_mode_1b,
-                    "fallback_version": "literal-section-profile-v2",
+                    "fallback_version": "literal-section-profile-v3",
                     "cv_chunk_chars": self.settings.cv_chunk_chars,
                     "cv_truncation_retries": self.settings.cv_truncation_retries,
                     "cv_max_model_calls": self.settings.cv_max_model_calls,
