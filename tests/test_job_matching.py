@@ -137,11 +137,11 @@ def test_matching_returns_real_quote_without_ranking(ats, vacancy, pdf):
     assert len(matching.list_for_vacancy(vacancy.id)) == 1
 
 
-def test_uncertain_claim_must_not_become_evidence(ats, vacancy, pdf):
+def test_uncertain_claim_requires_review_not_negative_evidence(ats, vacancy, pdf):
     document_id, _ = make_data(ats, vacancy, pdf, supported=False)
     approve_criteria(ats, vacancy, names=("Java",))
     result = JobMatchingService(ats.db).match_document(document_id)
-    assert result.criteria_results[0]["status"] == "NOT_EVIDENCED"
+    assert result.criteria_results[0]["status"] == "REVIEW_REQUIRED"
 
 
 def test_unapproved_job_is_not_matched(ats, vacancy, pdf):
