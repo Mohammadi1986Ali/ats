@@ -1,6 +1,8 @@
 """Job-first dashboard and live pipeline monitor backed only by persisted ATS records."""
 
 import pandas as pd
+
+from job_hire_ai.errors import ATSError
 import streamlit as st
 
 from job_hire_ai.dashboard_view import (
@@ -71,6 +73,31 @@ def dashboard_live(ats):
         st.info("No jobs yet. Create a vacancy in Job Management to begin.")
         return
     st.dataframe(_job_table(pulses), hide_index=True, width="stretch")
+    with st.expander("Delete selected Jobs and JDs", expanded=False):
+        options = {job.id: job.title for job in vacancies}
+        chosen_jobs = st.multiselect(
+            "Select Jobs to permanently delete (including their CVs)",
+            list(options), format_func=lambda job_id: f"Job {job_id} · {options[job_id]}",
+            key="dashboard_delete_jobs",
+        )
+        confirm_jobs = st.checkbox(
+            f"I confirm permanent deletion of {len(chosen_jobs)} selected Job(s), "
+            "their JD, CVs, and analysis records.",
+            key="dashboard_delete_jobs_confirm",
+        )
+        if st.button(
+            "Delete selected Jobs", type="primary",
+            disabled=not chosen_jobs or not confirm_jobs,
+            key="dashboard_delete_jobs_action",
+        ):
+            try:
+                deleted = ats.deletion.delete_vacancies(chosen_jobs)
+                st.session_state.pop("dashboard_delete_jobs", None)
+                st.session_state.pop("dashboard_delete_jobs_confirm", None)
+                st.success(f"Deleted {deleted} selected Jobs and their associated data.")
+                st.rerun()
+            except ATSError as exc:
+                st.error(str(exc))
     st.caption(
         "Every row is a Job. CV totals are scoped to that Job; "
         "archived jobs remain visible."
@@ -157,6 +184,32 @@ def monitor_live(ats):
     rows = document_rows(all_items, query, state)
     st.caption(f"Showing {len(rows)} of {len(all_items)} CVs for this Job")
     if rows:
+        with st.expander("Delete selected CVs", expanded=False):
+            options = {row["CV ID"]: row["Filename"] for row in rows}
+            chosen = st.multiselect(
+                "Select CV records to delete",
+                list(options),
+                format_func=lambda doc_id: f"CV {doc_id} · {options[doc_id]}",
+                key=f"delete_cv_ids_{selected.id}",
+            )
+            confirm = st.checkbox(
+                f"I confirm permanent deletion of {len(chosen)} selected CV(s) "
+                "and their extracted results.",
+                key=f"confirm_cv_delete_{selected.id}",
+            )
+            if st.button(
+                "Delete selected CVs", type="primary",
+                disabled=not chosen or not confirm,
+                key=f"delete_cv_action_{selected.id}",
+            ):
+                try:
+                    count = ats.deletion.delete_documents(chosen, selected.id)
+                    st.session_state.pop(f"delete_cv_ids_{selected.id}", None)
+                    st.session_state.pop(f"confirm_cv_delete_{selected.id}", None)
+                    st.success(f"Deleted {count} selected CV(s).")
+                    st.rerun()
+                except ATSError as exc:
+                    st.error(str(exc))
         st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch",
                      height=min(640, max(210, 36 * (len(rows) + 1))))
         selected_id = st.selectbox("Inspect an individual CV", [r["CV ID"] for r in rows],
