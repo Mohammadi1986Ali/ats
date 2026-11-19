@@ -86,8 +86,6 @@ def _source_lines(segments: list[dict]) -> list[tuple[str, str]]:
 def _employment_entry(lines: list[tuple[str, str]], offset: int):
     """Find literal employer, title and dates in common adjacent CV layouts."""
     near = lines[offset:offset + 3]
-    if len(near) < 2:
-        return None
     # Employer / role / date, role / employer / date, or date / role / employer.
     candidates = []
     if len(near) == 3:
@@ -105,8 +103,10 @@ def _employment_entry(lines: list[tuple[str, str]], offset: int):
         ):
             return employer, role, date, dates
     # Many CVs format a row as "Senior Engineer | Company | Jan 2020 - Present".
+    if not near:
+        return None
     line, ref = near[0]
-    parts = [part.strip() for part in re.split(r"\\s+[|•]\\s+|\\s+@\\s+", line)]
+    parts = [part.strip() for part in re.split(r"\s+[|•]\s+|\s+@\s+", line)]
     if len(parts) == 3:
         for role_idx, employer_idx in ((0, 1), (1, 0)):
             dates = DATE_RANGE.fullmatch(parts[2])
@@ -165,7 +165,7 @@ def _extract_clear_records(segments: list[dict], values: dict) -> None:
                     candidate, candidate_ref = section_lines[i + 1]
                     if (
                         re.search(
-                            r"\\b(university|college|institute|school|polytechnic)\\b",
+                            r"\b(university|college|institute|school|polytechnic)\b",
                             candidate, re.IGNORECASE,
                         )
                         and not DEGREE.match(candidate)
@@ -190,7 +190,7 @@ def _extract_clear_records(segments: list[dict], values: dict) -> None:
     for line, ref in lines + [("SUMMARY", "")]:
         match = SECTION_PATTERN.match(line)
         heading = bool(match and re.fullmatch(
-            re.escape(match.group(1)) + r"[\\s:—–-]*",
+            re.escape(match.group(1)) + r"[\s:—–-]*",
             line, re.IGNORECASE,
         ))
         if heading:
@@ -202,7 +202,9 @@ def _extract_clear_records(segments: list[dict], values: dict) -> None:
                     "EXPERIENCE", "WORK EXPERIENCE", "EMPLOYMENT",
                     "EMPLOYMENT HISTORY", "PROFESSIONAL EXPERIENCE",
                 }
-                else "education" if value in {"EDUCATION", "ACADEMIC BACKGROUND", "QUALIFICATIONS"}
+                else "education" if value in {
+                    "EDUCATION", "ACADEMIC BACKGROUND", "QUALIFICATIONS",
+                }
                 else None
             )
         elif section is not None:
