@@ -24,7 +24,7 @@ from job_hire_ai.services.criteria_service import CriteriaService, description_h
 logger = logging.getLogger(__name__)
 
 def _word(term):
-    return re.compile(r"(?<!\\w)" + re.escape(term) + r"(?!\\w)", re.IGNORECASE)
+    return re.compile(r"(?<!\w)" + re.escape(term) + r"(?!\w)", re.IGNORECASE)
 
 
 def literal_jd_criteria(description: str) -> list[CriterionInput]:
@@ -37,7 +37,7 @@ def literal_jd_criteria(description: str) -> list[CriterionInput]:
     used = set()
     chunks = description.splitlines()
     if len(chunks) == 1:
-        chunks = re.split(r"(?<=[.!?])\\s+", description)
+        chunks = re.split(r"(?<=[.!?])\s+", description)
     for chunk in chunks:
         for term in sorted(KNOWN_TERMS, key=len, reverse=True):
             match = _word(term).search(chunk)
@@ -53,7 +53,7 @@ def literal_jd_criteria(description: str) -> list[CriterionInput]:
                 continue
             used.add(term.casefold())
             required = bool(re.search(
-                r"\\b(required|must|mandatory|essential)\\b", chunk, re.IGNORECASE
+                r"\b(required|must|mandatory|essential)\b", chunk, re.IGNORECASE
             ))
             entries.append(CriterionInput(
                 name=match.group(),
