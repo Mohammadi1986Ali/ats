@@ -195,3 +195,48 @@ def test_fast_profile_completes_when_ollama_model_not_installed(ats, vacancy):
     )
     provider.check.assert_not_called()
     provider.analyze_cv.assert_not_called()
+
+
+def test_fast_mode_extracts_only_explicit_employment_and_education():
+    segments = [
+        {"reference": "pdf:p1:block1", "text": "EXPERIENCE ----------------"},
+        {"reference": "pdf:p1:block2",
+         "text": "blu Bank\\nSenior Software Engineer\\nDec 2022 – Jan 2026 (Full-time)"},
+        {"reference": "pdf:p2:block1",
+         "text": "MEBank\\nSenior Software Engineer\\nJun 2017 – Dec 2022 (Full-time)"},
+        {"reference": "pdf:p2:block2", "text": "EDUCATION ----------------"},
+        {"reference": "pdf:p2:block3",
+         "text": "Master of Science: Data Driven Business\\n"
+                 "The Hague University of Applied Sciences\\n"
+                 "Master of Science: Computer Engineering\\n"
+                 "Bachelor of Science: Applied Mathematics"},
+    ]
+    # Source-line evidence must remain literal, and unknown dates are unknown.
+    segments = [{**s, "text": s["text"].replace("\\\\n", "\\n")} for s in segments]
+    result = extract_literal_skills(segments, warning=FAST_MODE_WARNING)
+    assert [r.employer for r in result.employment_history] == ["blu Bank", "MEBank"]
+    assert result.employment_history[0].start_date == "Dec 2022"
+    assert result.employment_history[0].end_date == "Jan 2026"
+    assert result.employment_history[0].claim_status == "UNCERTAIN"
+    assert len(result.education) == 3
+    assert result.education[0].institution == "The Hague University of Applied Sciences"
+    assert result.education[1].institution is None
+    assert result.education[0].graduation_date is None
+    source = ExtractedText([
+        TextSegment(s["reference"], s["text"], s["text"], 1, "paragraph")
+        for s in segments
+    ], [])
+    for row in result.employment_history + result.education:
+        for quote in row.evidence:
+            assert verify_quote(quote, source, 1).verification_status == "VERIFIED"
+
+
+def test_fast_mode_does_not_invent_jobs_from_unstructured_prose():
+    result = extract_literal_skills([
+        {"reference": "pdf:p1:block1",
+         "text": "Worked with Java on payments. Graduated from university in 2022."},
+        {"reference": "pdf:p1:block2",
+         "text": "EDUCATION\\nInterested in computer engineering and cloud systems."},
+    ])
+    assert result.employment_history == []
+    assert result.education == []
