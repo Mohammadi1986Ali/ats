@@ -29,10 +29,10 @@ def test_default_weight_allocation_is_deterministic():
 
 
 def test_manual_rules_reject_missing_duplicate_and_incorrect_total():
-    assert parse_manual_weights("Java = 60\\nKafka = 40") == {
+    assert parse_manual_weights("Java = 60\nKafka = 40") == {
         "java": 60, "kafka": 40
     }
-    for input_value in ("", "Java = 90", "Java = 40\\njava = 60", "Java: 100"):
+    for input_value in ("", "Java = 90", "Java = 40\njava = 60", "Java: 100"):
         with pytest.raises(ATSError):
             parse_manual_weights(input_value)
 
@@ -72,7 +72,7 @@ def test_manual_weighting_selected_on_jd_form(jd_draft, ats):
     _, draft_id = jd_draft
     criteria = ats.criteria.get(draft_id).criteria
     names = [row.name for row in criteria]
-    rules = "\\n".join(f"{name} = 25" for name in names)
+    rules = "\n".join(f"{name} = 25" for name in names)
     ats.criteria.activate_entered_weights(draft_id, mode="MANUAL", rules=rules)
     config = ats.criteria.get(draft_id)
     assert config.approved_by == "USER_ENTERED_JD_WEIGHTS"
