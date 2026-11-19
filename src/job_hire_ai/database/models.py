@@ -43,6 +43,8 @@ class Vacancy(Timestamps, Base):
     department: Mapped[str | None] = mapped_column(String(200))
     description: Mapped[str]
     status: Mapped[str] = mapped_column(String(20), default="Active", index=True)
+    weighting_mode: Mapped[str] = mapped_column(String(20), default="MANUAL")
+    weighting_rules: Mapped[str] = mapped_column(Text, default="")
     applications: Mapped[list["JobApplication"]] = relationship(back_populates="vacancy")
     criteria_configurations: Mapped[list["CriteriaConfiguration"]] = relationship(
         back_populates="vacancy"
