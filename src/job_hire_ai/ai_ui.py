@@ -21,8 +21,9 @@ def render_ai_requirements(ats, vacancy):
     st.divider()
     st.header("AI Job Requirements")
     st.caption(
-        "Llama proposes job requirements only. HR reviews evidence, sets weights and approves. "
-        "Candidate screening and scoring are not implemented."
+        "JD requirements come from the local model. Weighting can be selected while "
+        "creating or editing the job: manually specified or system default. "
+        "System defaults are not HR approval."
     )
     st.write(f"Current model: {ats.ollama_settings.model}")
     cache_key = f"model_status_{ats.ollama_settings.base_url}_{ats.ollama_settings.model}"
@@ -144,7 +145,7 @@ def _read_only(configuration):
     st.caption(
         f"{configuration.status} · created {configuration.created_at} UTC · "
         f"approved {configuration.approved_at or '—'} · "
-        f"reviewer {configuration.approved_by or 'not recorded'}"
+        f"source {('System default — not HR reviewed' if configuration.approved_by == 'SYSTEM_DEFAULT_NOT_HR' else 'JD-entered manual weights' if configuration.approved_by == 'USER_ENTERED_JD_WEIGHTS' else configuration.approved_by or 'not recorded')}"
     )
     st.code(configuration.job_description_hash, language=None)
     st.dataframe(
