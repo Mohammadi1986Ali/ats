@@ -121,7 +121,9 @@ def _extract_clear_records(segments: list[dict], values: dict) -> None:
                                 for text, source in (employer, role, date)
                             ],
                             "claim_status": "UNCERTAIN",
-                            "uncertainty": "Explicit section lines; role details and responsibilities need review.",
+                            "uncertainty": (
+                                "Explicit section lines; role details and responsibilities need review."
+                            ),
                         })
                         if len(values["employment_history"]) >= 100:
                             break
@@ -152,7 +154,9 @@ def _extract_clear_records(segments: list[dict], values: dict) -> None:
                         "graduation_date": None,
                         "evidence": evidence,
                         "claim_status": "UNCERTAIN",
-                        "uncertainty": "Literal education entry; missing dates/institutions are unknown.",
+                        "uncertainty": (
+                            "Literal education entry; missing dates/institutions are unknown."
+                        ),
                     })
                     if len(values["education"]) >= 50:
                         break
