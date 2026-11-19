@@ -106,9 +106,11 @@ class SelectionDeletionService:
         profile_ids = list(session.scalars(select(CandidateProfile.id).where(
             CandidateProfile.document_id.in_(ids)
         )))
-        analysis_job_ids = list(session.scalars(select(CVAnalysisJob.id).where(
-            CVAnalysisJob.document_id.in_(ids)
-        )))
+        analysis_jobs = list(session.execute(select(
+            CVAnalysisJob.id, CVAnalysisJob.batch_id
+        ).where(CVAnalysisJob.document_id.in_(ids))))
+        analysis_job_ids = [job_id for job_id, _ in analysis_jobs]
+        affected_batches = list({batch_id for _, batch_id in analysis_jobs})
         session.execute(delete(CandidateScoreSnapshot).where(
             CandidateScoreSnapshot.document_id.in_(ids)
         ))
@@ -141,12 +143,12 @@ class SelectionDeletionService:
             DocumentTextExtraction.document_id.in_(ids)
         ))
         session.execute(delete(CandidateDocument).where(CandidateDocument.id.in_(ids)))
-        # Existing jobs/batches may have no remaining CV analysis jobs.
-        batches = list(session.scalars(select(CVAnalysisBatch.id).where(
-            ~CVAnalysisBatch.id.in_(select(CVAnalysisJob.batch_id))
-        )))
-        if batches:
-            session.execute(delete(CVAnalysisBatch).where(CVAnalysisBatch.id.in_(batches)))
+        # Delete only newly orphaned batches associated with selected CVs.
+        if affected_batches:
+            session.execute(delete(CVAnalysisBatch).where(
+                CVAnalysisBatch.id.in_(affected_batches),
+                ~CVAnalysisBatch.id.in_(select(CVAnalysisJob.batch_id)),
+            ))
 
     @classmethod
     def _clean_orphans(cls, session, app_ids):
