@@ -73,6 +73,31 @@ def dashboard_live(ats):
         st.info("No jobs yet. Create a vacancy in Job Management to begin.")
         return
     st.dataframe(_job_table(pulses), hide_index=True, width="stretch")
+    with st.expander("Delete selected Jobs and JDs", expanded=False):
+        options = {job.id: job.title for job in vacancies}
+        chosen_jobs = st.multiselect(
+            "Select Jobs to permanently delete (including their CVs)",
+            list(options), format_func=lambda job_id: f"Job {job_id} · {options[job_id]}",
+            key="dashboard_delete_jobs",
+        )
+        confirm_jobs = st.checkbox(
+            f"I confirm permanent deletion of {len(chosen_jobs)} selected Job(s), "
+            "their JD, CVs, and analysis records.",
+            key="dashboard_delete_jobs_confirm",
+        )
+        if st.button(
+            "Delete selected Jobs", type="primary",
+            disabled=not chosen_jobs or not confirm_jobs,
+            key="dashboard_delete_jobs_action",
+        ):
+            try:
+                deleted = ats.deletion.delete_vacancies(chosen_jobs)
+                st.session_state.pop("dashboard_delete_jobs", None)
+                st.session_state.pop("dashboard_delete_jobs_confirm", None)
+                st.success(f"Deleted {deleted} selected Jobs and their associated data.")
+                st.rerun()
+            except ATSError as exc:
+                st.error(str(exc))
     st.caption(
         "Every row is a Job. CV totals are scoped to that Job; "
         "archived jobs remain visible."
