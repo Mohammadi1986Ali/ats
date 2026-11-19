@@ -49,7 +49,7 @@ def jd_draft(ats):
     ))
     provider = Mock()
     provider.analyze.return_value = AnalysisOutput(
-        Extraction.model_validate({"criteria": example["expected"]}),
+        Extraction.model_validate_json(json.dumps({"criteria": example["expected"]})),
         "llama3.2:1b", "fake-test-digest", 5,
     )
     ats.job_analysis = JobAnalysisService(ats.db, provider, ats.ollama_settings)
