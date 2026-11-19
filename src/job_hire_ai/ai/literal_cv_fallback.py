@@ -46,27 +46,27 @@ FALLBACK_WARNING = (
 SECTION_PATTERN = re.compile(
     r"^(EXPERIENCE|WORK EXPERIENCE|EMPLOYMENT|EMPLOYMENT HISTORY|"
     r"PROFESSIONAL EXPERIENCE|EDUCATION|QUALIFICATIONS|SKILLS|TECHNICAL SKILLS|"
-    r"LANGUAGES|CERTIFICATIONS|PROJECTS|SUMMARY)\\b",
+    r"LANGUAGES|CERTIFICATIONS|PROJECTS|SUMMARY)\b",
     re.IGNORECASE,
 )
 DATE_RANGE = re.compile(
-    r"^(?P<start>(?:[A-Za-z]{3,9}\\s+)?(?:19|20)\\d{2})\\s*"
-    r"[-–—]\\s*"
-    r"(?P<end>(?:[A-Za-z]{3,9}\\s+)?(?:19|20)\\d{2}|Present|Current|Now)"
-    r"(?:\\s*\\((?P<type>[^)]{1,60})\\))?$",
+    r"^(?P<start>(?:[A-Za-z]{3,9}\s+)?(?:19|20)\d{2})\s*"
+    r"[-–—]\s*"
+    r"(?P<end>(?:[A-Za-z]{3,9}\s+)?(?:19|20)\d{2}|Present|Current|Now)"
+    r"(?:\s*\((?P<type>[^)]{1,60})\))?$",
     re.IGNORECASE,
 )
 DEGREE = re.compile(
-    r"^(?P<degree>Bachelor(?:'s)?(?:\\s+of\\s+\\w+)?|"
-    r"Master(?:'s)?(?:\\s+of\\s+\\w+)?|"
-    r"Ph\\.?D\\.?|Doctor(?:ate)?|BSc|MSc|MBA|BA|MA|BS|MS)"
-    r"\\s*(?::|in\\s+|of\\s+)?\\s*(?P<field>.*)$",
+    r"^(?P<degree>Bachelor(?:'s)?(?:\s+of\s+\w+)?|"
+    r"Master(?:'s)?(?:\s+of\s+\w+)?|"
+    r"Ph\.?D\.?|Doctor(?:ate)?|BSc|MSc|MBA|BA|MA|BS|MS)"
+    r"\s*(?::|in\s+|of\s+)?\s*(?P<field>.*)$",
     re.IGNORECASE,
 )
 ROLE = re.compile(
-    r"\\b(engineer|developer|architect|analyst|manager|consultant|"
+    r"\b(engineer|developer|architect|analyst|manager|consultant|"
     r"designer|scientist|administrator|specialist|director|lead|intern|"
-    r"researcher|officer|technician)\\b",
+    r"researcher|officer|technician)\b",
     re.IGNORECASE,
 )
 
@@ -92,7 +92,7 @@ def _extract_clear_records(segments: list[dict], values: dict) -> None:
         match = SECTION_PATTERN.match(line)
         is_heading = bool(match and (
             line.upper() == match.group(1).upper()
-            or re.fullmatch(re.escape(match.group(1)) + r"[\\s:—–-]*", line, re.IGNORECASE)
+            or re.fullmatch(re.escape(match.group(1)) + r"[\s:—–-]*", line, re.IGNORECASE)
         ))
         if is_heading:
             if section == "experience":
@@ -135,7 +135,7 @@ def _extract_clear_records(segments: list[dict], values: dict) -> None:
                     if i + 1 < len(section_lines):
                         following, following_ref = section_lines[i + 1]
                         if (
-                            re.search(r"\\b(university|college|institute|school|polytechnic)\\b",
+                            re.search(r"\b(university|college|institute|school|polytechnic)\b",
                                       following, re.IGNORECASE)
                             and not DEGREE.match(following)
                         ):
