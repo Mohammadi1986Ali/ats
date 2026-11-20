@@ -115,7 +115,7 @@ def test_background_queue_uses_completed_pipeline_and_skips_finished(ats, vacanc
         assert session.scalar(select(EvidenceReference.id))
     llama = LlamaScoringService(ats.db, provider([
         {"criterion_id": criterion_id, "status": "EVIDENCED",
-         "evidence_ids": [source_id], "reason": "Direct source mention."},
+         "evidence_ids": ["e1"], "reason": "Direct source mention."},
     ]))
     assert llama.pending_document() == doc_id
     llama.evaluate(doc_id)
