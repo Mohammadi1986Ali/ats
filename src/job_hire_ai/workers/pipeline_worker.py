@@ -77,10 +77,12 @@ def main() -> None:
             service.recover_interrupted()
             if llama is not None:
                 interrupted = llama.recover_interrupted()
-                if interrupted:
+                retryable = llama.recover_outdated_failures()
+                if interrupted or retryable:
                     logging.warning(
-                        "Recovered %s interrupted Llama scoring attempts; retry in dashboard",
-                        interrupted,
+                        "Recovered %s interrupted and requeued %s obsolete "
+                        "Llama failures for automatic scoring",
+                        interrupted, retryable,
                     )
             if analyzer is not None:
                 if (
