@@ -14,10 +14,7 @@ from job_hire_ai.dashboard_view import (
     stage_breakdown,
 )
 from job_hire_ai.errors import ATSError
-from job_hire_ai.services.llama_scoring_service import (
-    evidence_classification,
-    score_band,
-)
+from job_hire_ai.services.llama_scoring_service import evidence_classification
 
 
 def _open_job(vacancy_id: int) -> None:
