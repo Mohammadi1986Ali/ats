@@ -8,6 +8,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 
+from job_hire_ai.ai.provider import ProviderError
 from job_hire_ai.database.models import (
     CandidateDocument,
     CandidateProfile,
@@ -19,7 +20,6 @@ from job_hire_ai.database.models import (
     Vacancy,
     now,
 )
-from job_hire_ai.ai.provider import ProviderError
 from job_hire_ai.errors import ATSError
 from job_hire_ai.services.criteria_service import description_hash
 
@@ -319,10 +319,10 @@ class LlamaScoringService:
                             single_prompt, LlamaCriterionFinding, output_limit=260
                         ).extraction
                         if single.criterion_id != criterion.id:
-                            raise ATSError("Llama returned the wrong JD criterion ID.")
+                            raise ATSError("Llama returned the wrong JD criterion ID.") from exc
                         permitted_single = {row["id"] for row in brief_evidence}
                         if any(ref not in permitted_single for ref in single.evidence_ids):
-                            raise ATSError("Llama invented an individual evidence ID.")
+                            raise ATSError("Llama invented an individual evidence ID.") from exc
                         received[criterion.id] = single
 
                 permitted = {refs_to_ids[row.id] for row in chosen.values()}
