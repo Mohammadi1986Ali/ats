@@ -95,23 +95,52 @@ def main() -> None:
             if settings.matching_enabled and settings.scoring_enabled:
                 recovered = recover_legacy_jd_weights(db)
                 logging.info("Legacy JD weighting recovery: %s", recovered)
-            logging.info("Automatic CV text worker started")
+            logging.info("Automatic ATS worker started; Llama enabled=%s", llama is not None)
             last_jd_check = time.monotonic()
+            steps_since_llama_check = 0
             while True:
-                if service.process_next():
-                    continue
-                # Llama assesses only CVs with completed deterministic scoring.
-                # Failed model attempts are persisted, never looped indefinitely.
-                if llama is not None:
-                    document_id = llama.pending_document()
-                    if document_id is not None:
-                        try:
+                # An incomplete/blocked earlier stage must never prevent completed
+                # CVs from receiving their model-based evidence score.
+                # Check for Llama work at least once every five pipeline operations.
+                steps_since_llama_check += 1
+                if llama is not None and steps_since_llama_check >= 5:
+                    steps_since_llama_check = 0
+                    try:
+                        document_id = llama.pending_document()
+                        if document_id is not None:
+                            logging.info("Starting Llama scoring for CV %s", document_id)
                             llama.evaluate(document_id)
+                            logging.info("Llama scoring finished for CV %s", document_id)
+                    except ATSError as exc:
+                        logging.warning("Llama scoring failed: %s", exc)
+                    except Exception:
+                        logging.exception(
+                            "Unexpected Llama scoring error; continuing ATS pipeline"
+                        )
+
+                processed = False
+                try:
+                    processed = service.process_next()
+                except Exception:
+                    logging.exception("Unexpected pipeline error; worker remains active")
+                if not processed:
+                    # Existing completed CVs also get picked up after application
+                    # restart even if no pipeline stage is pending.
+                    if llama is not None:
+                        try:
+                            document_id = llama.pending_document()
+                            if document_id is not None:
+                                logging.info("Starting Llama scoring for CV %s", document_id)
+                                llama.evaluate(document_id)
+                                logging.info("Llama scoring finished for CV %s", document_id)
+                                continue
                         except ATSError as exc:
-                            logging.warning("Llama scoring CV %s: %s", document_id, exc)
-                        continue
-                # Jobs may be created while the background worker is alive.
-                # Recover eligible default-weight JDs without requiring restart.
+                            logging.warning("Llama scoring failed: %s", exc)
+                        except Exception:
+                            logging.exception(
+                                "Unexpected Llama scoring error; continuing ATS pipeline"
+                            )
+
                 if settings.matching_enabled and settings.scoring_enabled:
                     current = time.monotonic()
                     if current - last_jd_check >= 30:
@@ -122,7 +151,8 @@ def main() -> None:
                                 logging.info("Automatic JD criteria recovery: %s", outcomes)
                         except Exception:
                             logging.exception("JD criteria recovery failed; worker continues")
-                time.sleep(2)
+                if not processed:
+                    time.sleep(2)
     except ATSError as exc:
         # Another healthy worker owns the lock; extra startup instances simply exit.
         logging.info("CV text worker not started: %s", exc)
