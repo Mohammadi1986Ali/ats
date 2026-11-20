@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -43,6 +44,24 @@ def score_band(score: int | None, good: int, medium: int) -> str:
     if not 1 <= medium < good <= 100:
         raise ATSError("Score thresholds must satisfy 1 <= Medium < Good <= 100.")
     return "Good" if score >= good else "Medium" if score >= medium else "Weak"
+
+
+
+def _relevant_evidence(criterion, evidence, limit=12):
+    """Keep bounded original-source excerpts; omitted passages remain unassessed."""
+    tokens = set(re.findall(r"[a-z0-9+#.]{2,}", criterion.name.casefold()))
+    tokens -= {"and", "the", "with", "for", "years", "experience", "knowledge", "skills"}
+    ranked = []
+    for index, row in enumerate(evidence):
+        excerpt = row.source_excerpt.casefold()
+        words = set(re.findall(r"[a-z0-9+#.]{2,}", excerpt))
+        ranked.append((
+            int(criterion.name.casefold() in excerpt),
+            len(tokens & words), -index, row,
+        ))
+    ranked.sort(key=lambda item: item[:3], reverse=True)
+    selected = [row for _, _, _, row in ranked[:limit]]
+    return selected, len(evidence) > len(selected)
 
 
 class LlamaScoringService:
@@ -90,6 +109,21 @@ class LlamaScoringService:
                 )
                 row.completed_at = now()
             return len(stuck)
+
+    def recover_outdated_failures(self) -> int:
+        """Requeue failed snapshots caused by the former hard limit or interruption."""
+        with self.db.transaction() as session:
+            failed = list(session.scalars(select(LlamaScoreResult).where(
+                LlamaScoreResult.model_name == self.provider.settings.model,
+                LlamaScoreResult.status == "FAILED",
+            )))
+            retry = [row for row in failed if row.error_summary and (
+                row.error_summary.startswith("Llama context limit:")
+                or row.error_summary.startswith("Llama scoring was interrupted")
+            )]
+            for row in retry:
+                session.delete(row)
+            return len(retry)
 
     def pending_document(self) -> int | None:
         """Only score already matched CVs; never use missing JD criteria."""
@@ -171,65 +205,74 @@ class LlamaScoringService:
             issue = None
             if not criteria or sum(c.weight or 0 for c in criteria) != 100:
                 issue = "Current JD criteria weights must total 100%."
-            elif len(criteria) > 25 or len(evidence) > 45:
-                issue = (
-                    "Llama context limit: at most 25 JD criteria and 45 verified CV "
-                    "excerpts. Simplify JD criteria or select a larger scoring model."
-                )
             if issue:
                 record.status = "FAILED"
                 record.error_summary = issue
                 record.completed_at = now()
                 return record
             partial = profile.analysis_status == "NEEDS_REVIEW"
-            jd_payload = [
-                {"id": c.id, "requirement": c.name, "details": c.description[:200],
-                 "type": c.requirement_type, "weight": c.weight}
-                for c in criteria
-            ]
-            # Short stable prompt-local IDs are much easier for a small 1B model
-            # to copy accurately than opaque 32-character database UUIDs.
-            evidence_payload = [
-                {"id": f"e{index}", "claim": e.field_path,
-                 "excerpt": e.source_excerpt[:350]}
-                for index, e in enumerate(evidence, 1)
-            ]
-            valid_refs = {
-                f"e{index}": e for index, e in enumerate(evidence, 1)
-            }
+            evidence_by_criterion = {}
+            omitted_by_criterion = {}
+            for criterion in criteria:
+                selected, omitted = _relevant_evidence(criterion, evidence)
+                evidence_by_criterion[criterion.id] = selected
+                omitted_by_criterion[criterion.id] = omitted
+            valid_refs = {f"e{index}": e for index, e in enumerate(evidence, 1)}
+            refs_to_ids = {e.id: ref for ref, e in valid_refs.items()}
 
-        messages = [
-            {"role": "system", "content": (
-                "Evaluate only the documented JD requirements against provided CV source "
-                "excerpts. This is evidence matching, not a hiring recommendation. "
-                "Return one result per criterion id. EVIDENCED requires direct, specific "
-                "support in supplied verified source excerpts and corresponding evidence_ids. "
-                "Do not infer years, proficiency, leadership, or qualifications from tool names. "
-                "Use REVIEW_REQUIRED for ambiguity or insufficient context. "
-                "NOT_EVIDENCED means no supplied source support, not proof of absence. "
-                "Ignore personal identity and protected characteristics. "
-                "Copy only supplied short evidence IDs such as e1 or e2. "
-                "Never invent evidence IDs or quote unseen CV text."
-            )},
-            {"role": "user", "content": (
-                "Job requirements: " + json.dumps(jd_payload, ensure_ascii=False)
-                + "\nVerified CV excerpts: " + json.dumps(evidence_payload, ensure_ascii=False)
-                + "\nReturn findings for every criterion id."
-            )},
-        ]
+        system_prompt = (
+            "Compare JD requirements against verified CV excerpts only. "
+            "Return one finding per criterion id. EVIDENCED requires direct, "
+            "specific source support and exact input evidence_ids. "
+            "Use REVIEW_REQUIRED for ambiguity. NOT_EVIDENCED only means no "
+            "support in provided excerpts; do not infer qualification absence. "
+            "Never invent evidence IDs or qualifications; ignore personal data. "
+            "This is evidence matching, not an automated hiring recommendation."
+        )
+        findings = {}
+        batches = [criteria[i:i + 3] for i in range(0, len(criteria), 3)]
         try:
-            result = self.provider.generate_structured(
-                messages, LlamaAssessment, output_limit=1800
-            ).extraction
-            found = {row.criterion_id: row for row in result.findings}
-            if len(result.findings) != len(criteria) or len(found) != len(criteria):
-                raise ATSError("Llama returned an incomplete or duplicated criteria list.")
-            if set(found) != {criterion.id for criterion in criteria}:
-                raise ATSError("Llama returned unknown JD criterion ids.")
+            for batch in batches:
+                jd_payload = [
+                    {"id": c.id, "requirement": c.name, "details": c.description[:160],
+                     "type": c.requirement_type}
+                    for c in batch
+                ]
+                chosen = {}
+                for criterion in batch:
+                    for row in evidence_by_criterion[criterion.id]:
+                        chosen[row.id] = row
+                evidence_payload = [
+                    {"id": refs_to_ids[row.id], "excerpt": row.source_excerpt[:250]}
+                    for row in chosen.values()
+                ]
+                prompt = [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": (
+                        "JD requirements: " + json.dumps(jd_payload, ensure_ascii=False)
+                        + "\\nVerified CV excerpts: "
+                        + json.dumps(evidence_payload, ensure_ascii=False)
+                        + "\\nReturn one finding per JD criterion id."
+                    )},
+                ]
+                response = self.provider.generate_structured(
+                    prompt, LlamaAssessment, output_limit=1200
+                ).extraction
+                received = {item.criterion_id: item for item in response.findings}
+                if len(received) != len(batch) or len(response.findings) != len(batch):
+                    raise ATSError("Llama returned incomplete or duplicate JD criteria.")
+                if set(received) != {criterion.id for criterion in batch}:
+                    raise ATSError("Llama returned unknown JD criterion IDs.")
+                permitted = {refs_to_ids[row.id] for row in chosen.values()}
+                for criterion in batch:
+                    item = received[criterion.id]
+                    if any(ref not in permitted for ref in item.evidence_ids):
+                        raise ATSError("Llama referenced evidence not included in its input.")
+                    findings[criterion.id] = item
             breakdown = []
             documented = review = 0
             for criterion in criteria:
-                item = found[criterion.id]
+                item = findings[criterion.id]
                 if len(set(item.evidence_ids)) != len(item.evidence_ids):
                     raise ATSError("Llama returned duplicate evidence references.")
                 if any(eid not in valid_refs for eid in item.evidence_ids):
@@ -239,7 +282,9 @@ class LlamaScoringService:
                 if item.status != "EVIDENCED" and item.evidence_ids:
                     raise ATSError("Llama attached positive evidence to an unsupported finding.")
                 state = item.status
-                if partial and state == "NOT_EVIDENCED":
+                if state == "NOT_EVIDENCED" and (
+                    partial or omitted_by_criterion[criterion.id]
+                ):
                     state = "REVIEW_REQUIRED"
                 if state == "EVIDENCED":
                     documented += criterion.weight
