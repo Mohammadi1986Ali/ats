@@ -18,8 +18,8 @@ from job_hire_ai.errors import ATSError
 from job_hire_ai.services.llama_scoring_service import (
     LlamaAssessment,
     LlamaScoringService,
-    score_band,
     _relevant_evidence,
+    score_band,
 )
 from tests.test_job_matching import approve_criteria, make_data
 
