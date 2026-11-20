@@ -14,6 +14,7 @@ from job_hire_ai.dashboard_view import (
     stage_breakdown,
 )
 from job_hire_ai.errors import ATSError
+from job_hire_ai.services.llama_scoring_service import score_band
 
 
 def _open_job(vacancy_id: int) -> None:
@@ -173,6 +174,52 @@ def monitor_live(ats):
         "Embedding, profile extraction, evidence checks, matching and evidence-coverage "
         "scoring run when enabled. HR review remains a separate future phase."
     )
+    st.subheader("Llama evidence scoring")
+    st.caption(
+        "A 0–100 weighted JD evidence score, not an automated hiring decision. "
+        "Good / Medium / Weak labels are configurable evidence-coverage bands. "
+        "Human review is required, especially for partial CV profiles."
+    )
+    with st.expander("Configure score bands", expanded=False):
+        with st.form(f"score_bands_{selected.id}"):
+            medium = st.number_input(
+                "Medium starts at (%)", min_value=1, max_value=99,
+                value=selected.medium_threshold, step=1,
+            )
+            good = st.number_input(
+                "Good starts at (%)", min_value=2, max_value=100,
+                value=selected.good_threshold, step=1,
+            )
+            apply_bands = st.form_submit_button("Save thresholds")
+        if apply_bands:
+            try:
+                ats.vacancies.set_score_bands(selected.id, int(good), int(medium))
+                st.success("Score thresholds saved for this Job.")
+                st.rerun()
+            except ATSError as exc:
+                st.error(str(exc))
+    llama_rows = []
+    for cv in all_items:
+        result = ats.llama_scoring.current(cv["CV"])
+        complete = result is not None and result.status == "COMPLETED"
+        llama_rows.append({
+            "CV ID": cv["CV"],
+            "Filename": cv["Filename"],
+            "Score / 100": result.score if complete else None,
+            "Classification": (
+                score_band(result.score, selected.good_threshold, selected.medium_threshold)
+                if complete else "Not scored"
+            ),
+            "Review weight": result.review_weight if complete else None,
+            "Llama status": result.status if result is not None else "QUEUED",
+            "Model": result.model_name if result is not None else
+            ats.llama_scoring.provider.settings.model,
+            "Error": result.error_summary if result is not None else None,
+        })
+    if llama_rows:
+        st.dataframe(pd.DataFrame(llama_rows), hide_index=True, width="stretch")
+    else:
+        st.info("No CVs uploaded. Upload CVs to start automatic Llama scoring.")
     st.subheader("CV monitor")
     filter_col, search_col = st.columns([1, 2])
     with filter_col:
@@ -287,6 +334,42 @@ def monitor_live(ats):
                     "No scoring result is stored for this CV yet. "
                     "Inspect the Scoring stage below for status and errors."
                 )
+
+        with st.expander("Llama matching & evidence score", expanded=True):
+            outcome = ats.llama_scoring.current(selected_id)
+            if outcome is None:
+                st.info(
+                    "Local Llama has not scored this CV yet. Check the matching/scoring "
+                    "stages and ensure the configured Ollama scoring model is installed."
+                )
+            elif outcome.status == "FAILED":
+                st.error(outcome.error_summary or "Local Llama evaluation failed.")
+                if st.button("Retry Llama evaluation", key=f"retry_llama_{selected_id}"):
+                    try:
+                        ats.llama_scoring.retry(selected_id)
+                        st.rerun()
+                    except ATSError as exc:
+                        st.error(str(exc))
+            elif outcome.status == "RUNNING":
+                st.info("Local Llama evaluation is running.")
+            else:
+                st.metric("JD evidence score", f"{outcome.score}/100")
+                st.write(
+                    "Classification:",
+                    score_band(
+                        outcome.score, selected.good_threshold, selected.medium_threshold
+                    ),
+                )
+                st.caption(
+                    f"Model: {outcome.model_name} · "
+                    f"Needs review: {outcome.review_weight}% of JD criteria weight. "
+                    "Results are evidence matches for human review, not hiring verdicts."
+                )
+                st.dataframe(
+                    pd.DataFrame(outcome.breakdown), hide_index=True, width="stretch"
+                )
+                with st.expander("Source-backed Llama reasoning"):
+                    st.json(outcome.breakdown)
 
         # Similarity is JD-to-CV text retrieval, not evidence of a qualification
         # or an automated hiring/ranking score. No LLM calls in this view.
