@@ -19,6 +19,7 @@ from job_hire_ai.database.models import (
     Vacancy,
     now,
 )
+from job_hire_ai.ai.provider import ProviderError
 from job_hire_ai.errors import ATSError
 from job_hire_ai.services.criteria_service import description_hash
 
@@ -36,6 +37,20 @@ class LlamaCriterionFinding(BaseModel):
 class LlamaAssessment(BaseModel):
     model_config = ConfigDict(extra="forbid")
     findings: list[LlamaCriterionFinding]
+
+
+def scoring_model_settings(model: str):
+    """Use CPU-friendly context and bounded generation without changing CV extraction."""
+    from job_hire_ai.ai.settings import OllamaSettings
+
+    current = OllamaSettings(model=model)
+    return current.model_copy(update={
+        "num_ctx": 4096,
+        "num_predict": 1024,
+        "num_thread": 4,
+        "retries": 0,
+        "timeout_seconds": min(current.timeout_seconds, 180),
+    })
 
 
 def score_band(score: int | None, good: int, medium: int) -> str:
@@ -120,6 +135,8 @@ class LlamaScoringService:
             retry = [row for row in failed if row.error_summary and (
                 row.error_summary.startswith("Llama context limit:")
                 or row.error_summary.startswith("Llama scoring was interrupted")
+                or row.error_summary.startswith("Ollama timed out or disconnected")
+                or row.error_summary.startswith("Llama returned incomplete")
             )]
             for row in retry:
                 session.delete(row)
@@ -255,14 +272,59 @@ class LlamaScoringService:
                         + "\\nReturn one finding per JD criterion id."
                     )},
                 ]
-                response = self.provider.generate_structured(
-                    prompt, LlamaAssessment, output_limit=1200
-                ).extraction
-                received = {item.criterion_id: item for item in response.findings}
-                if len(received) != len(batch) or len(response.findings) != len(batch):
-                    raise ATSError("Llama returned incomplete or duplicate JD criteria.")
-                if set(received) != {criterion.id for criterion in batch}:
-                    raise ATSError("Llama returned unknown JD criterion IDs.")
+                # A 1B model can omit items in a multi-criterion response.
+                # Retry only that failed batch using one short, strict output
+                # per criterion instead of losing the whole CV score.
+                received = {}
+                try:
+                    response = self.provider.generate_structured(
+                        prompt, LlamaAssessment, output_limit=650
+                    ).extraction
+                    received = {item.criterion_id: item for item in response.findings}
+                    if (
+                        len(received) != len(batch)
+                        or len(response.findings) != len(batch)
+                        or set(received) != {criterion.id for criterion in batch}
+                    ):
+                        raise ATSError("Llama returned incomplete or duplicate JD criteria.")
+                except (ATSError, ProviderError) as exc:
+                    logger.warning(
+                        "Llama batch response failed for CV %s; retrying %s criteria "
+                        "individually: %s", document_id, len(batch), type(exc).__name__,
+                    )
+                    received = {}
+                    for criterion in batch:
+                        individual = evidence_by_criterion[criterion.id][:5]
+                        brief_evidence = [
+                            {"id": refs_to_ids[row.id], "excerpt": row.source_excerpt[:180]}
+                            for row in individual
+                        ]
+                        single_prompt = [
+                            {"role": "system", "content": (
+                                "Check only the JD criterion against verified CV excerpts. "
+                                "Return criterion_id, status, evidence_ids, reason. "
+                                "EVIDENCED requires supplied source IDs. If unclear, use "
+                                "REVIEW_REQUIRED. Do not invent sources or qualifications."
+                            )},
+                            {"role": "user", "content": (
+                                "Criterion: " + json.dumps({
+                                    "id": criterion.id, "name": criterion.name,
+                                    "details": criterion.description[:100],
+                                }, ensure_ascii=False)
+                                + "\nVerified excerpts: "
+                                + json.dumps(brief_evidence, ensure_ascii=False)
+                            )},
+                        ]
+                        single = self.provider.generate_structured(
+                            single_prompt, LlamaCriterionFinding, output_limit=260
+                        ).extraction
+                        if single.criterion_id != criterion.id:
+                            raise ATSError("Llama returned the wrong JD criterion ID.")
+                        permitted_single = {row["id"] for row in brief_evidence}
+                        if any(ref not in permitted_single for ref in single.evidence_ids):
+                            raise ATSError("Llama invented an individual evidence ID.")
+                        received[criterion.id] = single
+
                 permitted = {refs_to_ids[row.id] for row in chosen.values()}
                 for criterion in batch:
                     item = received[criterion.id]
