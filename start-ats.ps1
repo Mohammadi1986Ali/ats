@@ -133,6 +133,7 @@ try {
     Set-Config $envPath "ATS_EVIDENCE_VALIDATION_ENABLED" "true"
     Set-Config $envPath "ATS_MATCHING_ENABLED" "true"
     Set-Config $envPath "ATS_SCORING_ENABLED" "true"
+    Set-Config $envPath "ATS_LLAMA_SCORING_ENABLED" "true"
 
     # Upgrade only known legacy defaults. Preserve customized model choices.
     $lightweightDefaults = @(
@@ -226,6 +227,7 @@ try {
     $env:ATS_EVIDENCE_VALIDATION_ENABLED = "true"
     $env:ATS_MATCHING_ENABLED = "true"
     $env:ATS_SCORING_ENABLED = "true"
+    $env:ATS_LLAMA_SCORING_ENABLED = "true"
 
     Write-Host "Checking database schema..." -ForegroundColor Cyan
     uv run --no-sync alembic upgrade head
