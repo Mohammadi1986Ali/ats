@@ -75,6 +75,13 @@ def main() -> None:
     try:
         with worker_lock(settings.directory / "pipeline-text-worker.lock"):
             service.recover_interrupted()
+            if llama is not None:
+                interrupted = llama.recover_interrupted()
+                if interrupted:
+                    logging.warning(
+                        "Recovered %s interrupted Llama scoring attempts; retry in dashboard",
+                        interrupted,
+                    )
             if analyzer is not None:
                 if (
                     analyzer.settings.cv_fast_mode_1b
