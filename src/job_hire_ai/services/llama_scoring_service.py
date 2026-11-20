@@ -94,8 +94,21 @@ class LlamaScoringService:
                 .order_by(CandidateDocument.id)
             ))
         for document_id in docs:
-            if self.current(document_id) is None:
-                return document_id
+            with self.db.transaction() as session:
+                document = session.get(CandidateDocument, document_id)
+                vacancy = session.get(Vacancy, document.vacancy_id)
+                activated = session.scalar(select(CriteriaConfiguration.id).where(
+                    CriteriaConfiguration.vacancy_id == vacancy.id,
+                    CriteriaConfiguration.status == "APPROVED",
+                    CriteriaConfiguration.job_description_hash
+                    == description_hash(vacancy.description),
+                ))
+                has_profile = session.scalar(select(CandidateProfile.id).where(
+                    CandidateProfile.document_id == document_id
+                ).limit(1))
+            if activated is not None and has_profile is not None:
+                if self.current(document_id) is None:
+                    return document_id
         return None
 
     def evaluate(self, document_id: int) -> LlamaScoreResult:
