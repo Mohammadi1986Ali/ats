@@ -12,7 +12,7 @@ from job_hire_ai.services.dashboard_service import DashboardService
 from job_hire_ai.services.document_service import DocumentService
 from job_hire_ai.services.embedding_service import LocalEmbedder
 from job_hire_ai.services.job_matching_service import JobMatchingService
-from job_hire_ai.services.llama_scoring_service import LlamaScoringService
+from job_hire_ai.services.llama_scoring_service import LlamaScoringService, scoring_model_settings
 from job_hire_ai.services.pipeline_service import PipelineService
 from job_hire_ai.services.selection_deletion_service import SelectionDeletionService
 from job_hire_ai.services.semantic_matching_service import SemanticMatchingService
@@ -49,7 +49,7 @@ class Runtime:
         self.ollama_settings = OllamaSettings()
         self.provider = OllamaProvider(self.ollama_settings)
         self.llama_scoring = LlamaScoringService(
-            self.db, OllamaProvider(OllamaSettings(model=settings.llama_scoring_model))
+            self.db, OllamaProvider(scoring_model_settings(settings.llama_scoring_model))
         )
         self.job_analysis = JobAnalysisService(self.db, self.provider, self.ollama_settings)
         self.profiles = CandidateProfileService(self.db)
