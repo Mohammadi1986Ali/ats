@@ -118,33 +118,50 @@ def dashboard_live(ats):
             col.metric(name, n)
         st.button("Open this Job's CV pipeline", key=f"open_pipeline_{choice.id}",
                   type="primary", on_click=_open_monitor, args=(choice.id,))
-    st.subheader("Candidate Llama evidence scores")
+    st.subheader("CV scores & classifications")
+    # The pre-existing evidence-coverage score is a real stored result even when
+    # local Llama has not completed. Never label that score as Llama output.
+    baseline = {}
+    for saved in ats.candidate_scoring.list_for_vacancy(choice.id):
+        baseline.setdefault(saved.document_id, saved)
     score_rows = []
     for item in items:
         if item["Job ID"] != choice.id:
             continue
         outcome = ats.llama_scoring.current(item["CV"])
-        complete = outcome is not None and outcome.status == "COMPLETED"
+        llama_done = outcome is not None and outcome.status == "COMPLETED"
+        previous = baseline.get(item["CV"])
+        points = outcome.score if llama_done else (
+            previous.documented_weight if previous is not None else None
+        )
+        review = outcome.review_weight if llama_done else (
+            previous.review_weight if previous is not None else None
+        )
         score_rows.append({
             "CV ID": item["CV"],
             "Filename": item["Filename"],
-            "Score / 100": outcome.score if complete else None,
-            "Classification": (
-                score_band(outcome.score, choice.good_threshold, choice.medium_threshold)
-                if complete else "Not scored"
+            "Score / 100": points,
+            "Classification": score_band(
+                points, choice.good_threshold, choice.medium_threshold
+            ),
+            "Method": (
+                "Llama + verified evidence" if llama_done
+                else "Rule-based evidence" if previous is not None else "Not scored"
             ),
             "Llama status": outcome.status if outcome else "QUEUED",
-            "Review weight": outcome.review_weight if complete else None,
+            "Review required (%)": review,
             "Error": outcome.error_summary if outcome else None,
         })
     if score_rows:
         st.dataframe(pd.DataFrame(score_rows), hide_index=True, width="stretch")
         st.caption(
-            "Good / Medium / Weak classify documented JD evidence, not candidate "
-            "suitability. Open Pipeline Monitor for source references and thresholds."
+            "Scores measure documented JD evidence, not hiring suitability. "
+            "The Method column distinguishes rule-based scores from completed Llama scores. "
+            "Open Pipeline Monitor for source references and threshold configuration."
         )
     else:
-        st.caption("No CV evidence scores for this Job yet.")
+        st.caption("No CVs uploaded for this Job.")
+
     failures = failure_rows(items)
     if failures:
         st.subheader(f"Needs attention · {len(failures)} failed stages")
@@ -225,28 +242,41 @@ def monitor_live(ats):
                 st.rerun()
             except ATSError as exc:
                 st.error(str(exc))
-    llama_rows = []
+    baseline = {}
+    for saved in ats.candidate_scoring.list_for_vacancy(selected.id):
+        baseline.setdefault(saved.document_id, saved)
+    score_rows = []
     for cv in all_items:
-        result = ats.llama_scoring.current(cv["CV"])
-        complete = result is not None and result.status == "COMPLETED"
-        llama_rows.append({
+        outcome = ats.llama_scoring.current(cv["CV"])
+        llama_done = outcome is not None and outcome.status == "COMPLETED"
+        previous = baseline.get(cv["CV"])
+        points = outcome.score if llama_done else (
+            previous.documented_weight if previous is not None else None
+        )
+        review = outcome.review_weight if llama_done else (
+            previous.review_weight if previous is not None else None
+        )
+        score_rows.append({
             "CV ID": cv["CV"],
             "Filename": cv["Filename"],
-            "Score / 100": result.score if complete else None,
-            "Classification": (
-                score_band(result.score, selected.good_threshold, selected.medium_threshold)
-                if complete else "Not scored"
+            "Score / 100": points,
+            "Classification": score_band(
+                points, selected.good_threshold, selected.medium_threshold
             ),
-            "Review weight": result.review_weight if complete else None,
-            "Llama status": result.status if result is not None else "QUEUED",
-            "Model": result.model_name if result is not None else
+            "Method": (
+                "Llama + verified evidence" if llama_done
+                else "Rule-based evidence" if previous is not None else "Not scored"
+            ),
+            "Review required (%)": review,
+            "Llama status": outcome.status if outcome else "QUEUED",
+            "Model": outcome.model_name if outcome else
             ats.llama_scoring.provider.settings.model,
-            "Error": result.error_summary if result is not None else None,
+            "Error": outcome.error_summary if outcome else None,
         })
-    if llama_rows:
-        st.dataframe(pd.DataFrame(llama_rows), hide_index=True, width="stretch")
+    if score_rows:
+        st.dataframe(pd.DataFrame(score_rows), hide_index=True, width="stretch")
     else:
-        st.info("No CVs uploaded. Upload CVs to start automatic Llama scoring.")
+        st.info("No CVs uploaded. Upload CVs to start automatic scoring.")
     st.subheader("CV monitor")
     filter_col, search_col = st.columns([1, 2])
     with filter_col:
