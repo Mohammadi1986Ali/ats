@@ -143,13 +143,6 @@ class LlamaScoringService:
                 EvidenceReference.profile_id == profile.id,
                 EvidenceReference.verification_status == "VERIFIED",
             ).order_by(EvidenceReference.field_path, EvidenceReference.id)))
-            if not criteria or sum(c.weight or 0 for c in criteria) != 100:
-                raise ATSError("Current JD weights are not configured to total 100%.")
-            if len(criteria) > 25 or len(evidence) > 45:
-                raise ATSError(
-                    "Llama context limit: at most 25 JD criteria and 45 verified CV excerpts. "
-                    "Reduce the JD criteria or use a larger scoring model."
-                )
             record = LlamaScoreResult(
                 document_id=document_id, configuration_id=configuration.id,
                 profile_id=profile.id, model_name=self.provider.settings.model,
@@ -159,6 +152,19 @@ class LlamaScoringService:
             session.add(record)
             session.flush()
             record_id = record.id
+            issue = None
+            if not criteria or sum(c.weight or 0 for c in criteria) != 100:
+                issue = "Current JD criteria weights must total 100%."
+            elif len(criteria) > 25 or len(evidence) > 45:
+                issue = (
+                    "Llama context limit: at most 25 JD criteria and 45 verified CV "
+                    "excerpts. Simplify JD criteria or select a larger scoring model."
+                )
+            if issue:
+                record.status = "FAILED"
+                record.error_summary = issue
+                record.completed_at = now()
+                return record
             partial = profile.analysis_status == "NEEDS_REVIEW"
             jd_payload = [
                 {"id": c.id, "requirement": c.name, "details": c.description[:200],
