@@ -45,6 +45,8 @@ class Vacancy(Timestamps, Base):
     status: Mapped[str] = mapped_column(String(20), default="Active", index=True)
     weighting_mode: Mapped[str] = mapped_column(String(20), default="MANUAL")
     weighting_rules: Mapped[str] = mapped_column(Text, default="")
+    good_threshold: Mapped[int] = mapped_column(Integer, default=75)
+    medium_threshold: Mapped[int] = mapped_column(Integer, default=45)
     applications: Mapped[list["JobApplication"]] = relationship(back_populates="vacancy")
     criteria_configurations: Mapped[list["CriteriaConfiguration"]] = relationship(
         back_populates="vacancy"
@@ -439,6 +441,40 @@ class CandidateScoreSnapshot(Base):
     review_weight: Mapped[int]
     criterion_breakdown: Mapped[list] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(default=now)
+
+
+
+class LlamaScoreResult(Base):
+    """Persisted model-supported criterion evaluation, distinct from literal coverage."""
+
+    __tablename__ = "llama_score_results"
+    __table_args__ = (
+        UniqueConstraint(
+            "document_id", "configuration_id", "profile_id", "model_name",
+            name="uq_llama_scoring_snapshot",
+        ),
+        CheckConstraint("status IN ('RUNNING', 'COMPLETED', 'FAILED')"),
+        CheckConstraint("score IS NULL OR score BETWEEN 0 AND 100"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    document_id: Mapped[int] = mapped_column(
+        ForeignKey("candidate_documents.id", ondelete="CASCADE"), index=True
+    )
+    configuration_id: Mapped[int] = mapped_column(
+        ForeignKey("criteria_configurations.id", ondelete="CASCADE"), index=True
+    )
+    profile_id: Mapped[int] = mapped_column(
+        ForeignKey("candidate_profiles.id", ondelete="CASCADE"), index=True
+    )
+    model_name: Mapped[str] = mapped_column(String(200))
+    status: Mapped[str] = mapped_column(String(20))
+    score: Mapped[int | None]
+    review_weight: Mapped[int | None]
+    breakdown: Mapped[list | None] = mapped_column(JSON)
+    error_summary: Mapped[str | None] = mapped_column(String(500))
+    created_at: Mapped[datetime] = mapped_column(default=now)
+    completed_at: Mapped[datetime | None]
+
 
 
 
