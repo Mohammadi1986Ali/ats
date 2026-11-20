@@ -1,4 +1,4 @@
-"""Local Llama evidence assessment. Model selects verified source references, never scores people."""
+"""Local Llama matching uses verified source references, not hiring predictions."""
 
 import json
 import logging
