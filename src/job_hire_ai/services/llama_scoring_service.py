@@ -62,6 +62,21 @@ def score_band(score: int | None, good: int, medium: int) -> str:
 
 
 
+def evidence_classification(
+    score: int | None, review: int | None, good: int, medium: int
+) -> str:
+    """Classify only when unresolved evidence cannot change the score band."""
+    if score is None:
+        return "Not scored"
+    if not 1 <= medium < good <= 100:
+        raise ATSError("Score thresholds must satisfy 1 <= Medium < Good <= 100.")
+    uncertain = max(0, review or 0)
+    if uncertain and score < good and score + uncertain >= medium:
+        return "Needs review"
+    return score_band(score, good, medium)
+
+
+
 def _relevant_evidence(criterion, evidence, limit=12):
     """Keep bounded original-source excerpts; omitted passages remain unassessed."""
     tokens = set(re.findall(r"[a-z0-9+#.]{2,}", criterion.name.casefold()))
