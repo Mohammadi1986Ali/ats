@@ -19,12 +19,30 @@ st.set_page_config(page_title="Job Hire AI", page_icon="📁", layout="wide")
 logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
 
 
+@st.cache_data(ttl=60)
+def active_code_revision():
+    """Show the actual local checkout so an old ATS instance is obvious."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--short=8", "HEAD"],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+        return result.stdout.strip()
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return "unknown"
+
+
 @st.cache_resource
 def runtime(app_version):
     return Runtime(Settings())
 
 
-ats = runtime(version("job-hire-ai"))
+app_revision = active_code_revision()
+ats = runtime((version("job-hire-ai"), app_revision))
 try:
     with ats.db.engine.connect() as connection:
         revision = MigrationContext.configure(connection).get_current_revision()
@@ -44,29 +62,14 @@ def start_pipeline_worker(app_version):
 
 
 try:
-    start_pipeline_worker(version("job-hire-ai"))
+    start_pipeline_worker((version("job-hire-ai"), app_revision))
 except ATSError as exc:
     st.warning(str(exc))
 
-@st.cache_data(ttl=60)
-def active_code_revision():
-    """Show the actual local checkout so an old ATS instance is obvious."""
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--short=8", "HEAD"],
-            cwd=ROOT,
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=3,
-        )
-        return result.stdout.strip()
-    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
-        return "unknown"
 
 
 st.sidebar.title("Job Hire AI")
-st.sidebar.caption(f"Running local code: {active_code_revision()}")
+st.sidebar.caption(f"Running local code: {app_revision}")
 st.sidebar.caption("Applicant tracking · Job and CV analysis")
 page = st.sidebar.radio(
     "Navigation",
