@@ -118,6 +118,33 @@ def dashboard_live(ats):
             col.metric(name, n)
         st.button("Open this Job's CV pipeline", key=f"open_pipeline_{choice.id}",
                   type="primary", on_click=_open_monitor, args=(choice.id,))
+    st.subheader("Candidate Llama evidence scores")
+    score_rows = []
+    for item in items:
+        if item["Job ID"] != choice.id:
+            continue
+        outcome = ats.llama_scoring.current(item["CV"])
+        complete = outcome is not None and outcome.status == "COMPLETED"
+        score_rows.append({
+            "CV ID": item["CV"],
+            "Filename": item["Filename"],
+            "Score / 100": outcome.score if complete else None,
+            "Classification": (
+                score_band(outcome.score, choice.good_threshold, choice.medium_threshold)
+                if complete else "Not scored"
+            ),
+            "Llama status": outcome.status if outcome else "QUEUED",
+            "Review weight": outcome.review_weight if complete else None,
+            "Error": outcome.error_summary if outcome else None,
+        })
+    if score_rows:
+        st.dataframe(pd.DataFrame(score_rows), hide_index=True, width="stretch")
+        st.caption(
+            "Good / Medium / Weak classify documented JD evidence, not candidate "
+            "suitability. Open Pipeline Monitor for source references and thresholds."
+        )
+    else:
+        st.caption("No CV evidence scores for this Job yet.")
     failures = failure_rows(items)
     if failures:
         st.subheader(f"Needs attention · {len(failures)} failed stages")
