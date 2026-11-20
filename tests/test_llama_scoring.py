@@ -20,6 +20,7 @@ from job_hire_ai.services.llama_scoring_service import (
     LlamaCriterionFinding,
     LlamaScoringService,
     _relevant_evidence,
+    evidence_classification,
     score_band,
 )
 from tests.test_job_matching import approve_criteria, make_data
@@ -328,3 +329,13 @@ def test_restart_automatically_requeues_old_unsupported_evidence_failure(
     assert llama.recover_outdated_failures() == 1
     assert llama.current(doc_id) is None
     assert llama.recover_outdated_failures() == 0
+
+
+def test_review_weight_is_not_classified_as_weak():
+    assert evidence_classification(0, 100, 75, 45) == "Needs review"
+    assert evidence_classification(33, 67, 75, 45) == "Needs review"
+    assert evidence_classification(33, 0, 75, 45) == "Weak"
+    assert evidence_classification(80, 20, 75, 45) == "Good"
+    assert evidence_classification(0, 0, 75, 45) == "Weak"
+    assert evidence_classification(None, 100, 75, 45) == "Not scored"
+    assert evidence_classification(33, 10, 75, 45) == "Weak"
