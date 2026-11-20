@@ -1,4 +1,5 @@
 import logging
+import subprocess
 from importlib.metadata import version
 
 import streamlit as st
@@ -47,7 +48,25 @@ try:
 except ATSError as exc:
     st.warning(str(exc))
 
+@st.cache_data(ttl=60)
+def active_code_revision():
+    """Show the actual local checkout so an old ATS instance is obvious."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--short=8", "HEAD"],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+        return result.stdout.strip()
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return "unknown"
+
+
 st.sidebar.title("Job Hire AI")
+st.sidebar.caption(f"Running local code: {active_code_revision()}")
 st.sidebar.caption("Applicant tracking · Job and CV analysis")
 page = st.sidebar.radio(
     "Navigation",
