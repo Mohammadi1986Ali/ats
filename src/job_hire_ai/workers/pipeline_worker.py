@@ -12,6 +12,7 @@ from job_hire_ai.errors import ATSError
 from job_hire_ai.services.cv_analysis_service import CVAnalysisService
 from job_hire_ai.services.document_service import DocumentService
 from job_hire_ai.services.legacy_jd_activation import recover_legacy_jd_weights
+from job_hire_ai.services.llama_scoring_service import LlamaScoringService
 from job_hire_ai.services.pipeline_service import PipelineService
 from job_hire_ai.settings import Settings
 from job_hire_ai.storage import LocalStorage
@@ -55,6 +56,11 @@ def main() -> None:
             db, documents, OllamaProvider(model_settings), model_settings,
             settings.directory / "cv-worker.lock",
         )
+    llama = (
+        LlamaScoringService(
+            db, OllamaProvider(OllamaSettings(model=settings.llama_scoring_model))
+        ) if settings.llama_scoring_enabled and settings.scoring_enabled else None
+    )
     service = PipelineService(
         db, documents, settings.directory,
         embeddings_enabled=settings.embeddings_enabled,
@@ -87,6 +93,16 @@ def main() -> None:
             while True:
                 if service.process_next():
                     continue
+                # Llama assesses only CVs with completed deterministic scoring.
+                # Failed model attempts are persisted, never looped indefinitely.
+                if llama is not None:
+                    document_id = llama.pending_document()
+                    if document_id is not None:
+                        try:
+                            llama.evaluate(document_id)
+                        except ATSError as exc:
+                            logging.warning("Llama scoring CV %s: %s", document_id, exc)
+                        continue
                 # Jobs may be created while the background worker is alive.
                 # Recover eligible default-weight JDs without requiring restart.
                 if settings.matching_enabled and settings.scoring_enabled:
