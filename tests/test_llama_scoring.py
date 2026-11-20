@@ -158,7 +158,7 @@ def test_large_verified_cv_no_longer_rejected_by_fixed_limit(ats, vacancy, pdf):
             session.add(EvidenceReference(
                 profile_id=profile_id,
                 document_id=doc_id,
-                evidence_id=f"large-cv-{index}",
+                id=f"large-cv-{index}",
                 field_path=f"skills.{index + 1}",
                 source_excerpt=f"Unrelated technology number {index}",
                 source_reference=first.source_reference,
