@@ -267,7 +267,7 @@ class LlamaScoringService:
                 for criterion in batch:
                     item = received[criterion.id]
                     if any(ref not in permitted for ref in item.evidence_ids):
-                        raise ATSError("Llama referenced evidence not included in its input.")
+                        raise ATSError("Llama invented an evidence ID or referenced evidence not included in its input.")
                     findings[criterion.id] = item
             breakdown = []
             documented = review = 0
