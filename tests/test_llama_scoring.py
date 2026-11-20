@@ -19,6 +19,7 @@ from job_hire_ai.services.llama_scoring_service import (
     LlamaAssessment,
     LlamaScoringService,
     score_band,
+    _relevant_evidence,
 )
 from tests.test_job_matching import approve_criteria, make_data
 
@@ -142,3 +143,72 @@ def test_interrupted_llama_score_is_recoverable(ats, vacancy, pdf):
     assert "interrupted" in stored.error_summary.lower()
     llama.retry(doc_id)
     assert llama.current(doc_id) is None
+
+
+def test_large_verified_cv_no_longer_rejected_by_fixed_limit(ats, vacancy, pdf):
+    """Regression: 46 verified excerpts must not trigger an immediate failed score."""
+    doc_id, profile_id = make_data(ats, vacancy, pdf)
+    config_id = approve_criteria(ats, vacancy, names=("Java",))
+    with ats.db.transaction() as session:
+        first = session.scalar(select(EvidenceReference).where(
+            EvidenceReference.profile_id == profile_id
+        ))
+        # Evidence references are real DB records, not fabricated model results.
+        for index in range(46):
+            session.add(EvidenceReference(
+                profile_id=profile_id,
+                document_id=doc_id,
+                evidence_id=f"large-cv-{index}",
+                field_path=f"skills.{index + 1}",
+                source_excerpt=f"Unrelated technology number {index}",
+                source_reference=first.source_reference,
+                page_number=first.page_number,
+                character_start=first.character_start,
+                character_end=first.character_end,
+                verification_status="VERIFIED",
+            ))
+    with ats.db.transaction() as session:
+        criterion_id = session.scalar(select(JobCriterion.id).where(
+            JobCriterion.configuration_id == config_id
+        ))
+    fake = provider([
+        {"criterion_id": criterion_id, "status": "EVIDENCED",
+         "evidence_ids": ["e1"], "reason": "Verified Java excerpt."},
+    ])
+    llama = LlamaScoringService(ats.db, fake)
+    result = llama.evaluate(doc_id)
+    assert result.status == "COMPLETED"
+    assert result.score == 100
+    assert fake.generate_structured.call_count == 1
+    request = fake.generate_structured.call_args.args[0][1]["content"]
+    assert len(request) < 6000
+
+
+def test_recover_prior_context_failures_without_retrying_other_errors(ats, vacancy, pdf):
+    doc_id, profile_id = make_data(ats, vacancy, pdf)
+    config_id = approve_criteria(ats, vacancy, names=("Java",))
+    with ats.db.transaction() as session:
+        session.add(LlamaScoreResult(
+            document_id=doc_id, profile_id=profile_id,
+            configuration_id=config_id, model_name="llama3.2:1b",
+            status="FAILED", score=None, review_weight=None, breakdown=None,
+            error_summary="Llama context limit: at most 25 JD criteria",
+        ))
+    llama = LlamaScoringService(ats.db, provider(fail="Ollama unavailable"))
+    assert llama.recover_outdated_failures() == 1
+    assert llama.current(doc_id) is None
+    assert llama.recover_outdated_failures() == 0
+
+
+def test_relevance_selection_does_not_ignore_uninspected_excerpts():
+    evidence = [
+        SimpleNamespace(id=n, source_excerpt=f"Other subject {n}")
+        for n in range(60)
+    ]
+    evidence[45] = SimpleNamespace(id=45, source_excerpt="Extensive Java experience")
+    chosen, omitted = _relevant_evidence(
+        SimpleNamespace(name="Java"), evidence, limit=12
+    )
+    assert len(chosen) == 12
+    assert omitted is True
+    assert 45 in [row.id for row in chosen]
