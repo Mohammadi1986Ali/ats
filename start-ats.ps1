@@ -205,6 +205,49 @@ try {
         Write-Host "Ollama CLI not found. ATS UI will start; install/start Ollama to use local AI features." -ForegroundColor Yellow
     }
 
+    # Ensure the separate local Llama scoring model is present. CV extraction
+    # may use a lighter qwen model, but scoring must have its own installed model.
+    $scoreModel = (Read-Config $envPath)["ATS_LLAMA_SCORING_MODEL"]
+    if ([string]::IsNullOrWhiteSpace($scoreModel)) {
+        $scoreModel = "llama3.2:1b"
+        Set-Config $envPath "ATS_LLAMA_SCORING_MODEL" $scoreModel
+    }
+    if ($ollamaCommand) {
+        $ollamaExe = $ollamaCommand.Source
+        $scoreAvailable = $false
+        try {
+            $modelCheck = Start-Process -FilePath $ollamaExe -ArgumentList @(
+                "show", $scoreModel
+            ) -Wait -PassThru -NoNewWindow -RedirectStandardError (
+                Join-Path $env:TEMP "ats-llama-scoring-check.err"
+            ) -RedirectStandardOutput (
+                Join-Path $env:TEMP "ats-llama-scoring-check.out"
+            )
+            $scoreAvailable = ($modelCheck.ExitCode -eq 0)
+        } catch {
+            $scoreAvailable = $false
+        }
+        if (-not $scoreAvailable) {
+            Write-Host "Installing local Llama scoring model $scoreModel ..." -ForegroundColor Cyan
+            try {
+                $installScore = Start-Process -FilePath $ollamaExe -ArgumentList @(
+                    "pull", $scoreModel
+                ) -Wait -PassThru -NoNewWindow
+                $scoreAvailable = ($installScore.ExitCode -eq 0)
+            } catch {
+                $scoreAvailable = $false
+            }
+        }
+        if (-not $scoreAvailable) {
+            Write-Host (
+                "Llama scoring model unavailable. The Dashboard will show a scoring error. " +
+                "Check Ollama and rerun Start ATS.cmd."
+            ) -ForegroundColor Yellow
+        }
+    } else {
+        Write-Host "Ollama CLI unavailable. Llama scoring needs Ollama installed." -ForegroundColor Yellow
+    }
+
     # Upgrade only unchanged legacy extraction defaults. Preserve any user-
     # customized model profile settings and the existing database/credentials.
     $cvDefaults = @(
