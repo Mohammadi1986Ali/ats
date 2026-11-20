@@ -282,3 +282,49 @@ def test_recover_old_timeout_and_incomplete_scoring_failures(
     llama = LlamaScoringService(ats.db, provider(fail="unavailable"))
     assert llama.recover_outdated_failures() == 1
     assert llama.current(doc_id) is None
+
+
+@pytest.mark.parametrize("finding_status", ["REVIEW_REQUIRED", "NOT_EVIDENCED"])
+def test_verified_sources_in_unsupported_findings_do_not_fail_or_score(
+    ats, vacancy, pdf, finding_status
+):
+    """A cited excerpt may need review without proving a JD qualification."""
+    doc_id, _ = make_data(ats, vacancy, pdf)
+    config_id = approve_criteria(ats, vacancy, names=("Java",))
+    with ats.db.transaction() as session:
+        criterion_id = session.scalar(select(JobCriterion.id).where(
+            JobCriterion.configuration_id == config_id
+        ))
+    llama = LlamaScoringService(ats.db, provider([
+        {"criterion_id": criterion_id, "status": finding_status,
+         "evidence_ids": ["e1"], "reason": "Excerpt does not confirm the full requirement."},
+    ]))
+    result = llama.evaluate(doc_id)
+    assert result.status == "COMPLETED"
+    assert result.score == 0
+    assert result.review_weight in (0, 100)
+    assert result.breakdown[0]["evidence"][0]["source_excerpt"] == (
+        "Java and SQL experience."
+    )
+    assert result.breakdown[0]["status"] != "EVIDENCED"
+
+
+def test_restart_automatically_requeues_old_unsupported_evidence_failure(
+    ats, vacancy, pdf
+):
+    doc_id, profile_id = make_data(ats, vacancy, pdf)
+    config_id = approve_criteria(ats, vacancy, names=("Java",))
+    with ats.db.transaction() as session:
+        session.add(LlamaScoreResult(
+            document_id=doc_id, profile_id=profile_id,
+            configuration_id=config_id, model_name="llama3.2:1b",
+            status="FAILED", score=None, review_weight=None, breakdown=None,
+            error_summary=(
+                "Llama attached positive evidence to an unsupported finding."
+            ),
+        ))
+    llama = LlamaScoringService(ats.db, provider([]))
+    assert llama.current(doc_id).status == "FAILED"
+    assert llama.recover_outdated_failures() == 1
+    assert llama.current(doc_id) is None
+    assert llama.recover_outdated_failures() == 0
