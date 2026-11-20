@@ -14,7 +14,10 @@ from job_hire_ai.dashboard_view import (
     stage_breakdown,
 )
 from job_hire_ai.errors import ATSError
-from job_hire_ai.services.llama_scoring_service import score_band
+from job_hire_ai.services.llama_scoring_service import (
+    evidence_classification,
+    score_band,
+)
 
 
 def _open_job(vacancy_id: int) -> None:
@@ -141,8 +144,8 @@ def dashboard_live(ats):
             "CV ID": item["CV"],
             "Filename": item["Filename"],
             "Score / 100": points,
-            "Classification": score_band(
-                points, choice.good_threshold, choice.medium_threshold
+            "Classification": evidence_classification(
+                points, review, choice.good_threshold, choice.medium_threshold
             ),
             "Method": (
                 "Llama + verified evidence" if llama_done
@@ -155,6 +158,9 @@ def dashboard_live(ats):
     if score_rows:
         st.dataframe(pd.DataFrame(score_rows), hide_index=True, width="stretch")
         st.caption(
+            "Score 0 means zero JD weight has confirmed supporting evidence; it does "
+            "not mean the candidate has zero qualifications. Needs review means "
+            "unresolved JD evidence could change the classification. "
             "Scores measure documented JD evidence, not hiring suitability. "
             "The Method column distinguishes rule-based scores from completed Llama scores. "
             "Open Pipeline Monitor for source references and threshold configuration."
@@ -260,8 +266,8 @@ def monitor_live(ats):
             "CV ID": cv["CV"],
             "Filename": cv["Filename"],
             "Score / 100": points,
-            "Classification": score_band(
-                points, selected.good_threshold, selected.medium_threshold
+            "Classification": evidence_classification(
+                points, review, selected.good_threshold, selected.medium_threshold
             ),
             "Method": (
                 "Llama + verified evidence" if llama_done
@@ -275,6 +281,11 @@ def monitor_live(ats):
         })
     if score_rows:
         st.dataframe(pd.DataFrame(score_rows), hide_index=True, width="stretch")
+        st.caption(
+            "A zero documented score with 100% review required is not a Weak CV. "
+            "It means none of the job criteria have confirmed evidence yet. "
+            "Open the CV details to inspect the JD findings and source quotes."
+        )
     else:
         st.info("No CVs uploaded. Upload CVs to start automatic scoring.")
     st.subheader("CV monitor")
@@ -413,8 +424,9 @@ def monitor_live(ats):
                 st.metric("JD evidence score", f"{outcome.score}/100")
                 st.write(
                     "Classification:",
-                    score_band(
-                        outcome.score, selected.good_threshold, selected.medium_threshold
+                    evidence_classification(
+                        outcome.score, outcome.review_weight,
+                        selected.good_threshold, selected.medium_threshold
                     ),
                 )
                 st.caption(
