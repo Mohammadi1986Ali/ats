@@ -35,3 +35,13 @@ class VacancyService:
             if vacancy is None:
                 raise ATSError("Vacancy no longer exists.")
             vacancy.status = status
+
+    def set_score_bands(self, vacancy_id: int, good: int, medium: int):
+        if not 1 <= medium < good <= 100:
+            raise ATSError("Thresholds must satisfy 1 <= Medium < Good <= 100.")
+        with self.db.transaction() as session:
+            vacancy = session.get(Vacancy, vacancy_id)
+            if vacancy is None:
+                raise ATSError("Job no longer exists.")
+            vacancy.good_threshold = good
+            vacancy.medium_threshold = medium
