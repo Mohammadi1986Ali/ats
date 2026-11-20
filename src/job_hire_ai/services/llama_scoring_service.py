@@ -75,6 +75,22 @@ class LlamaScoringService:
                 LlamaScoreResult.model_name == self.provider.settings.model,
             ))
 
+    def recover_interrupted(self) -> int:
+        """Make crashed/incomplete attempts retryable instead of RUNNING forever."""
+        with self.db.transaction() as session:
+            stuck = list(session.scalars(select(LlamaScoreResult).where(
+                LlamaScoreResult.model_name == self.provider.settings.model,
+                LlamaScoreResult.status == "RUNNING",
+            )))
+            for row in stuck:
+                row.status = "FAILED"
+                row.error_summary = (
+                    "Llama scoring was interrupted by an application restart. "
+                    "Retry from the CV details."
+                )
+                row.completed_at = now()
+            return len(stuck)
+
     def pending_document(self) -> int | None:
         """Only score already matched CVs; never use missing JD criteria."""
         from job_hire_ai.database.models import DocumentPipelineStage
@@ -171,12 +187,16 @@ class LlamaScoringService:
                  "type": c.requirement_type, "weight": c.weight}
                 for c in criteria
             ]
+            # Short stable prompt-local IDs are much easier for a small 1B model
+            # to copy accurately than opaque 32-character database UUIDs.
             evidence_payload = [
-                {"id": e.id, "claim": e.field_path,
+                {"id": f"e{index}", "claim": e.field_path,
                  "excerpt": e.source_excerpt[:350]}
-                for e in evidence
+                for index, e in enumerate(evidence, 1)
             ]
-            valid_refs = {e.id: e for e in evidence}
+            valid_refs = {
+                f"e{index}": e for index, e in enumerate(evidence, 1)
+            }
 
         messages = [
             {"role": "system", "content": (
@@ -188,6 +208,7 @@ class LlamaScoringService:
                 "Use REVIEW_REQUIRED for ambiguity or insufficient context. "
                 "NOT_EVIDENCED means no supplied source support, not proof of absence. "
                 "Ignore personal identity and protected characteristics. "
+                "Copy only supplied short evidence IDs such as e1 or e2. "
                 "Never invent evidence IDs or quote unseen CV text."
             )},
             {"role": "user", "content": (
