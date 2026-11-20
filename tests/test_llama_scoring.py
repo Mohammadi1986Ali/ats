@@ -42,12 +42,12 @@ def test_llama_evidence_score_persisted_with_source_and_labels(ats, vacancy, pdf
         rows = list(session.scalars(select(JobCriterion).where(
             JobCriterion.configuration_id == config_id
         ).order_by(JobCriterion.display_order)))
-        source_id = session.scalar(select(EvidenceReference.id).where(
+        assert session.scalar(select(EvidenceReference.id).where(
             EvidenceReference.profile_id == profile_id
         ))
     llama = LlamaScoringService(ats.db, provider([
         {"criterion_id": rows[0].id, "status": "EVIDENCED",
-         "evidence_ids": [source_id], "reason": "Java is directly mentioned."},
+         "evidence_ids": ["e1"], "reason": "Java is directly mentioned."},
         {"criterion_id": rows[1].id, "status": "NOT_EVIDENCED",
          "evidence_ids": [], "reason": "No verified Python evidence provided."},
     ]))
@@ -112,7 +112,7 @@ def test_background_queue_uses_completed_pipeline_and_skips_finished(ats, vacanc
         )).status = "COMPLETED"
     with ats.db.transaction() as session:
         criterion_id = session.scalar(select(JobCriterion.id))
-        source_id = session.scalar(select(EvidenceReference.id))
+        assert session.scalar(select(EvidenceReference.id))
     llama = LlamaScoringService(ats.db, provider([
         {"criterion_id": criterion_id, "status": "EVIDENCED",
          "evidence_ids": [source_id], "reason": "Direct source mention."},
@@ -123,3 +123,22 @@ def test_background_queue_uses_completed_pipeline_and_skips_finished(ats, vacanc
     with ats.db.transaction() as session:
         assert session.scalar(select(LlamaScoreResult.id)) is not None
         assert session.scalar(select(CandidateScoreSnapshot.id)) is None
+
+
+def test_interrupted_llama_score_is_recoverable(ats, vacancy, pdf):
+    doc_id, profile_id = make_data(ats, vacancy, pdf)
+    config_id = approve_criteria(ats, vacancy, names=("Java",))
+    with ats.db.transaction() as session:
+        session.add(LlamaScoreResult(
+            document_id=doc_id, profile_id=profile_id,
+            configuration_id=config_id, model_name="llama3.2:1b",
+            status="RUNNING", score=None, review_weight=None,
+            breakdown=None, error_summary=None,
+        ))
+    llama = LlamaScoringService(ats.db, provider(fail="Connection unavailable"))
+    assert llama.recover_interrupted() == 1
+    stored = llama.current(doc_id)
+    assert stored.status == "FAILED"
+    assert "interrupted" in stored.error_summary.lower()
+    llama.retry(doc_id)
+    assert llama.current(doc_id) is None
