@@ -137,6 +137,9 @@ class LlamaScoringService:
                 or row.error_summary.startswith("Llama scoring was interrupted")
                 or row.error_summary.startswith("Ollama timed out or disconnected")
                 or row.error_summary.startswith("Llama returned incomplete")
+                or row.error_summary.startswith(
+                    "Llama attached positive evidence to an unsupported finding."
+                )
             )]
             for row in retry:
                 session.delete(row)
@@ -343,8 +346,11 @@ class LlamaScoringService:
                     raise ATSError("Llama returned unverified or invented evidence references.")
                 if item.status == "EVIDENCED" and not item.evidence_ids:
                     raise ATSError("Llama claimed evidence without any verified source.")
-                if item.status != "EVIDENCED" and item.evidence_ids:
-                    raise ATSError("Llama attached positive evidence to an unsupported finding.")
+                # A source can be relevant but insufficient to establish a
+                # qualification. Keep its verified quote for human review;
+                # only an EVIDENCED finding contributes positive score weight.
+                # Do not fail the entire CV merely because Llama included
+                # evidence alongside REVIEW_REQUIRED or NOT_EVIDENCED.
                 state = item.status
                 if state == "NOT_EVIDENCED" and (
                     partial or omitted_by_criterion[criterion.id]
