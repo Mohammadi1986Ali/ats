@@ -17,6 +17,7 @@ from job_hire_ai.database.models import (
 from job_hire_ai.errors import ATSError
 from job_hire_ai.services.llama_scoring_service import (
     LlamaAssessment,
+    LlamaCriterionFinding,
     LlamaScoringService,
     _relevant_evidence,
     score_band,
@@ -212,3 +213,72 @@ def test_relevance_selection_does_not_ignore_uninspected_excerpts():
     assert len(chosen) == 12
     assert omitted is True
     assert 45 in [row.id for row in chosen]
+
+
+def test_small_llama_falls_back_to_one_criterion_on_incomplete_batch(
+    ats, vacancy, pdf
+):
+    doc_id, _ = make_data(ats, vacancy, pdf)
+    config_id = approve_criteria(ats, vacancy, names=("Java", "Python"))
+    with ats.db.transaction() as session:
+        criteria = list(session.scalars(select(JobCriterion).where(
+            JobCriterion.configuration_id == config_id
+        ).order_by(JobCriterion.display_order)))
+    model = provider()
+    model.generate_structured.side_effect = [
+        SimpleNamespace(extraction=LlamaAssessment(findings=[])),
+        SimpleNamespace(extraction=LlamaCriterionFinding(
+            criterion_id=criteria[0].id, status="EVIDENCED",
+            evidence_ids=["e1"], reason="Directly supported Java evidence.",
+        )),
+        SimpleNamespace(extraction=LlamaCriterionFinding(
+            criterion_id=criteria[1].id, status="REVIEW_REQUIRED",
+            evidence_ids=[], reason="No sufficient verified Python evidence.",
+        )),
+    ]
+    result = LlamaScoringService(ats.db, model).evaluate(doc_id)
+    assert result.status == "COMPLETED"
+    assert result.score == 50
+    assert result.review_weight == 50
+    assert model.generate_structured.call_count == 3
+    assert model.generate_structured.call_args.args[1] is LlamaCriterionFinding
+
+
+def test_small_llama_timeout_falls_back_to_short_individual_prompts(
+    ats, vacancy, pdf
+):
+    doc_id, _ = make_data(ats, vacancy, pdf)
+    config_id = approve_criteria(ats, vacancy, names=("Java",))
+    with ats.db.transaction() as session:
+        criterion_id = session.scalar(select(JobCriterion.id).where(
+            JobCriterion.configuration_id == config_id
+        ))
+    model = provider()
+    model.generate_structured.side_effect = [
+        ProviderError("Ollama timed out or disconnected."),
+        SimpleNamespace(extraction=LlamaCriterionFinding(
+            criterion_id=criterion_id, status="EVIDENCED",
+            evidence_ids=["e1"], reason="Source states Java.",
+        )),
+    ]
+    result = LlamaScoringService(ats.db, model).evaluate(doc_id)
+    assert result.status == "COMPLETED"
+    assert result.score == 100
+    assert model.generate_structured.call_count == 2
+
+
+def test_recover_old_timeout_and_incomplete_scoring_failures(
+    ats, vacancy, pdf
+):
+    doc_id, profile_id = make_data(ats, vacancy, pdf)
+    config_id = approve_criteria(ats, vacancy, names=("Java",))
+    with ats.db.transaction() as session:
+        session.add(LlamaScoreResult(
+            document_id=doc_id, profile_id=profile_id,
+            configuration_id=config_id, model_name="llama3.2:1b",
+            status="FAILED", score=None, review_weight=None,
+            breakdown=None, error_summary="Llama returned incomplete or duplicate JD criteria.",
+        ))
+    llama = LlamaScoringService(ats.db, provider(fail="unavailable"))
+    assert llama.recover_outdated_failures() == 1
+    assert llama.current(doc_id) is None
