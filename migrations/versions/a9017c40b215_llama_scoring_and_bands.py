@@ -45,6 +45,8 @@ def upgrade():
         sa.CheckConstraint("status IN ('RUNNING', 'COMPLETED', 'FAILED')"),
         sa.CheckConstraint("score IS NULL OR score BETWEEN 0 AND 100"),
     )
+    for field in ("document_id", "configuration_id", "profile_id"):
+        op.create_index(f"ix_llama_score_results_{field}", "llama_score_results", [field])
 
 
 def downgrade():
