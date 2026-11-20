@@ -32,7 +32,7 @@ def provider(findings=None, fail=None):
         mock.generate_structured.side_effect = ProviderError(fail)
     else:
         mock.generate_structured.return_value = SimpleNamespace(
-            extraction=LlamaAssessment.model_validate({"findings": findings})
+            extraction=LlamaAssessment.model_validate({"findings": findings or []})
         )
     return mock
 
