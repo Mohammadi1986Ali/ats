@@ -12,7 +12,7 @@ from job_hire_ai.errors import ATSError
 from job_hire_ai.services.cv_analysis_service import CVAnalysisService
 from job_hire_ai.services.document_service import DocumentService
 from job_hire_ai.services.legacy_jd_activation import recover_legacy_jd_weights
-from job_hire_ai.services.llama_scoring_service import LlamaScoringService
+from job_hire_ai.services.llama_scoring_service import LlamaScoringService, scoring_model_settings
 from job_hire_ai.services.pipeline_service import PipelineService
 from job_hire_ai.settings import Settings
 from job_hire_ai.storage import LocalStorage
@@ -58,7 +58,7 @@ def main() -> None:
         )
     llama = (
         LlamaScoringService(
-            db, OllamaProvider(OllamaSettings(model=settings.llama_scoring_model))
+            db, OllamaProvider(scoring_model_settings(settings.llama_scoring_model))
         ) if settings.llama_scoring_enabled and settings.scoring_enabled else None
     )
     service = PipelineService(
