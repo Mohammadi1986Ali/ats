@@ -32,8 +32,10 @@ def _pipeline_live(ats, vacancy_id=None):
     summary, items = ats.pipeline.overview(vacancy_id)
     st.subheader("Automatic CV pipeline — live")
     st.caption(
-        "Upload starts text extraction automatically. Later AI, matching, scoring and "
-        "HR stages are not active in Phase 1."
+        "Upload starts text extraction automatically. Embeddings, profile extraction, "
+        "evidence validation, matching and scoring run when enabled and ready. "
+        "HR review remains a separate manual stage. Open Pipeline Monitor for "
+        "current stage results, failures and score evidence."
     )
     if summary:
         st.dataframe(pd.DataFrame(summary), hide_index=True, width="stretch")
