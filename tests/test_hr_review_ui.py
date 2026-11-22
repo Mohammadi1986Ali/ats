@@ -153,18 +153,19 @@ def test_identical_unverified_quote_does_not_merge_with_verified_quote():
     )
 
 
-def test_hr_evidence_picker_uses_selectable_tables_not_long_dropdowns():
+def test_hr_evidence_picker_uses_jd_citations_not_extracted_field_labels():
     from inspect import getsource
 
     from job_hire_ai.hr_review_ui import candidate_review
 
-    source = getsource(candidate_review)
-    picker = source.split('groups = evidence_groups(matching, payload)', 1)[1]
-    picker = picker.split('with st.expander("Advanced: original structured profile', 1)[0]
-    assert 'selection_mode="single-row"' in picker
-    assert '"Select a unique source quotation"' not in picker
-    assert '"Qualification to review"' not in picker
-    assert 'selected_evidence = None' in picker
+    body = getsource(candidate_review)
+    review = body.split('st.subheader("HR evidence review — by JD requirement")', 1)[1]
+    review = review.split('with st.expander("Advanced: original structured profile', 1)[0]
+    assert 'selection_mode="single-row"' in review
+    assert 'quote.get("source_excerpt")' in review
+    assert '"CV source quotation"' in review
+    assert 'evidence_record_label' not in review
+    assert 'language_skills' not in review
 
 
 def test_cv_section_heading_is_not_used_as_primary_evidence():
@@ -176,18 +177,18 @@ def test_cv_section_heading_is_not_used_as_primary_evidence():
     assert not is_section_heading("Experience with Java and PostgreSQL")
 
 
-def test_hr_evidence_table_uses_three_readable_columns():
+def test_hr_quote_table_displays_cv_quote_and_page_without_wrong_qualifications():
     from inspect import getsource
 
     from job_hire_ai.hr_review_ui import candidate_review
 
-    code = getsource(candidate_review)
-    table = code.split("quote_rows = [", 1)[1].split("chosen_rows =", 1)[0]
-    assert '"CV quotation"' in table
-    assert '"Related qualification"' in table
+    body = getsource(candidate_review)
+    review = body.split('st.subheader("HR evidence review — by JD requirement")', 1)[1]
+    table = review.split('quote_table = st.dataframe(', 1)[1].split('chosen_rows =', 1)[0]
+    assert '"CV source quotation"' in table
     assert '"Page"' in table
-    assert '"Linked records"' not in table
-    assert '"Verification"' not in table
+    assert '"Related qualification"' not in table
+    assert '"Language Skills"' not in table
 
 
 def test_requirement_evidence_links_only_exact_verified_saved_quotes():
@@ -230,5 +231,6 @@ def test_jd_requirement_selection_precedes_source_quotation_table():
     from job_hire_ai.hr_review_ui import candidate_review
 
     body = getsource(candidate_review)
-    assert body.index('"Job requirement"') < body.index('quote_rows = [')
-    assert 'requirement_evidence(chosen_requirement, evidence_list)' in body
+    review = body.split('st.subheader("HR evidence review — by JD requirement")', 1)[1]
+    assert review.index('"JD requirement"') < review.index('quote_table = st.dataframe(')
+    assert 'ats.jd_reviews.record(' in review
