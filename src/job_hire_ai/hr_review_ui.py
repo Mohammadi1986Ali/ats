@@ -153,51 +153,152 @@ def candidate_review(ats):
         )
     except ATSError as exc:
         st.warning(f"Original CV unavailable: {exc}")
-    with st.expander("Stored candidate profile", expanded=True):
-        profiles = ats.profiles.list(document_id=selected)
-        if profiles:
-            profile = profiles[0]
-            st.caption(
-                f"Profile {profile.id}, version {profile.extraction_version} · "
-                f"review status {ats.profiles.status(profile)}"
-            )
-            st.json(ats.profiles.effective(profile))
-            with st.expander("Verified original CV evidence"):
-                evidence = [
-                    {
-                        "Field": e.field_path,
-                        "Status": e.verification_status,
-                        "Source": e.source_reference,
-                        "Page": e.page_number,
-                        "Excerpt": e.source_excerpt,
-                    }
-                    for e in profile.evidence
-                ]
-                if evidence:
-                    st.dataframe(pd.DataFrame(evidence), hide_index=True, width="stretch")
-                else:
-                    st.info("No original CV evidence references have been saved.")
-        else:
-            st.info("Candidate profile is not available yet.")
-    with st.expander("JD criteria and matched evidence", expanded=True):
-        outcome = outcomes[selected]
-        if outcome is not None and outcome.status == "COMPLETED" and outcome.breakdown:
-            st.caption("Local Llama findings; each source quote must be checked by HR.")
-            details = criterion_details(outcome.breakdown)
-        else:
-            matches = [
-                row for row in ats.job_matching.list_for_vacancy(job.id)
-                if row.document_id == selected
-            ]
-            if matches:
-                st.caption("Conservative rule-based matching; Llama score unavailable.")
-                details = criterion_details(matches[0].criteria_results)
-            else:
-                details = []
-        if details:
-            st.dataframe(pd.DataFrame(details), hide_index=True, width="stretch")
-        else:
-            st.info("No current JD evidence matching is stored for this CV.")
+    st.subheader("Candidate profile")
+    profiles = ats.profiles.list(document_id=selected)
+    if profiles:
+        profile = profiles[0]
+        st.caption(
+            f"Profile version {profile.extraction_version} · "
+            f"Review status: {ats.profiles.status(profile).replace('_', ' ').title()}"
+        )
+        payload = ats.profiles.effective(profile)
+        sections = (
+            ("employment_history", "Work experience"),
+            ("technical_skills", "Technical skills"),
+            ("education", "Education"),
+            ("projects", "Projects"),
+            ("certifications", "Certifications"),
+            ("languages", "Languages"),
+        )
+        for field, label in sections:
+            entries = payload.get(field) or []
+            if not entries:
+                continue
+            with st.expander(f"{label} ({len(entries)})", expanded=field in (
+                "employment_history", "technical_skills",
+            )):
+                for index, entry in enumerate(entries, 1):
+                    if not isinstance(entry, dict):
+                        st.write(str(entry))
+                        continue
+                    # Evidence is shown separately; never expose nested JSON here.
+                    title = next((
+                        str(entry[key]) for key in (
+                            "name", "job_title", "degree", "project_name",
+                            "institution", "original_wording",
+                        ) if entry.get(key)
+                    ), f"{label} {index}")
+                    st.markdown(f"**{index}. {title}**")
+                    for key, value in entry.items():
+                        if key in {
+                            "evidence", "claim_status", "uncertainty",
+                            "name", "job_title", "degree", "project_name",
+                            "institution", "original_wording",
+                        } or value in (None, "", [], {}):
+                            continue
+                        friendly = key.replace("_", " ").capitalize()
+                        if isinstance(value, (str, int, float, bool)):
+                            st.write(f"{friendly}: {value}")
+                        elif isinstance(value, list) and all(
+                            isinstance(v, (str, int, float)) for v in value
+                        ):
+                            st.write(f"{friendly}: {', '.join(map(str, value))}")
+                    if entry.get("claim_status") != "SUPPORTED":
+                        st.caption("Extracted claim requires human verification.")
+                    if index != len(entries):
+                        st.divider()
+        other = [
+            (key, value) for key, value in payload.items()
+            if key not in {section for section, _ in sections}
+            and isinstance(value, list) and value
+            and key != "extraction_warnings"
+        ]
+        for key, entries in other:
+            with st.expander(f"{key.replace('_', ' ').title()} ({len(entries)})"):
+                for entry in entries:
+                    if isinstance(entry, dict):
+                        st.write({
+                            k.replace("_", " ").title(): v
+                            for k, v in entry.items() if k != "evidence"
+                        })
+                    else:
+                        st.write(str(entry))
+        with st.expander("Original CV source quotations"):
+            evidence = list(profile.evidence)
+            if not evidence:
+                st.info("No source quotations saved for this CV.")
+            for e in evidence:
+                label = e.field_path.split(".")[0].replace("_", " ").title()
+                st.markdown(f"**{label}** · {e.verification_status.replace('_', ' ').title()}")
+                st.write(e.source_excerpt)
+                st.caption(
+                    f"Page {e.page_number or 'unknown'} · "
+                    f"{e.source_reference or 'Source reference unavailable'}"
+                )
+                st.divider()
+        with st.expander("Advanced: original structured profile (JSON)"):
+            st.json(payload)
+    else:
+        st.info("Candidate profile is not available yet.")
+
+    st.subheader("Job requirements and CV evidence")
+    outcome = outcomes[selected]
+    if outcome is not None and outcome.status == "COMPLETED" and outcome.breakdown:
+        findings = outcome.breakdown
+        st.caption("AI-assisted findings from saved CV evidence; not an employment decision.")
+    else:
+        matches = [
+            row for row in ats.job_matching.list_for_vacancy(job.id)
+            if row.document_id == selected
+        ]
+        findings = matches[0].criteria_results if matches else []
+        if findings:
+            st.caption("Rule-based evidence findings; local Llama score is unavailable.")
+    if findings:
+        # One criterion per row, not a repeated table row for every excerpt.
+        summary_rows = [{
+            "Requirement": row.get("criterion") or row.get("name") or "Unnamed",
+            "Weight (%)": row.get("weight"),
+            "Evidence status": str(row.get("status", "UNKNOWN")).replace("_", " ").title(),
+            "Source excerpts": len(row.get("evidence") or []),
+        } for row in findings]
+        st.dataframe(
+            pd.DataFrame(summary_rows), hide_index=True, width="stretch",
+            column_config={
+                "Requirement": st.column_config.TextColumn(width="medium"),
+                "Weight (%)": st.column_config.NumberColumn(width="small"),
+                "Evidence status": st.column_config.TextColumn(width="medium"),
+                "Source excerpts": st.column_config.NumberColumn(width="small"),
+            },
+        )
+        st.caption(
+            "Select a requirement below to read its actual CV quotations. "
+            "An isolated skill name does not prove years of experience or proficiency."
+        )
+        for index, finding in enumerate(findings):
+            name = finding.get("criterion") or finding.get("name") or "Unnamed requirement"
+            status = str(finding.get("status", "UNKNOWN")).replace("_", " ").title()
+            evidence = finding.get("evidence") or []
+            with st.expander(
+                f"{name} · {status} · {len(evidence)} source excerpt(s)"
+            ):
+                st.write(f"**JD weight:** {finding.get('weight', 'Not specified')}%")
+                reason = (finding.get("reason") or "").strip()
+                if reason:
+                    st.caption(f"Model explanation: {reason}")
+                if not evidence:
+                    st.warning("No supporting source excerpt available for this requirement.")
+                for n, quote in enumerate(evidence, 1):
+                    st.markdown(f"**CV excerpt {n}**")
+                    st.write(quote.get("source_excerpt") or "No excerpt text")
+                    st.caption(
+                        f"Page {quote.get('page_number') or 'unknown'} · "
+                        f"{quote.get('source_reference') or 'Unspecified source'}"
+                    )
+        with st.expander("Advanced: full matching details"):
+            st.json(findings)
+    else:
+        st.info("No current JD evidence matching is stored for this CV.")
     st.info(
         "Read-only review: correcting evidence, recalculating after HR corrections, "
         "recording HR decisions and review history belong to phases 4.2–4.5."
