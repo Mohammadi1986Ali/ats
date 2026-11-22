@@ -102,7 +102,7 @@ def reviewed_breakdown(criteria, original, evidence, decisions, jd_reviews=None)
             (e, event.corrected_value or {})
             for e in evidence
             if (event := decisions.get(e.id)) is not None
-            and e.field_path.startswith((
+            and getattr(e, "field_path", "technical_skills.unknown").startswith((
                 "technical_skills.", "employment_history.", "projects.",
                 "relevant_domain_experience.",
             ))
