@@ -671,3 +671,24 @@ earlier source-level reviews and audit snapshots are preserved.
 
 Targeted regression tests:
 `uv run pytest -q tests/test_hr_score_service.py tests/test_hr_review_ui.py`.
+
+
+### Employment-history record inflation safeguard
+
+The previous local CV extraction/merge could turn many separate model records
+for one employer/role into an inflated job count. New profiles pass through a
+source-backed employment normalization step: keep jobs only when employer and
+job title both appear in the original extracted CV, merge repeated entries for
+the same employer/title and compatible dates, and preserve distinct employers,
+roles and conflicting employment periods. When the parser combines or excludes
+records, it adds an extraction warning; it never invents a replacement role or
+dates. The new normalization version is part of the CV extraction cache key.
+
+**Existing historical profiles are preserved**, not silently rewritten. In
+**HR Candidate Review**, profiles with more than ten extracted job records are
+marked unreliable; the **Re-analyze CV with corrected job parsing** button
+generates a new, versioned profile from the already uploaded original CV without
+resetting jobs, CV uploads or audit records. HR should verify the actual number
+of jobs from the original CV, not assume that the generated record count is true.
+
+Targeted tests: `uv run pytest -q tests/test_employment_normalizer.py`.
