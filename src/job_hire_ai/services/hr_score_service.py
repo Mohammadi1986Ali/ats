@@ -14,6 +14,7 @@ from job_hire_ai.database.models import (
 )
 from job_hire_ai.errors import ATSError
 from job_hire_ai.services.criteria_service import description_hash
+from job_hire_ai.services.jd_review_service import PREFIX as JD_PREFIX, quote_key
 
 REVIEW_PREFIX = "__evidence_review__."
 SCORE_PREFIX = "__hr_score__."
@@ -41,8 +42,9 @@ def _source_matches(quote, evidence):
     )
 
 
-def reviewed_breakdown(criteria, original, evidence, decisions):
+def reviewed_breakdown(criteria, original, evidence, decisions, jd_reviews=None):
     """Compute documented/review buckets; unknown remains review, never a rejection."""
+    jd_reviews = jd_reviews or {}
     by_id = {int(row["criterion_id"]): row for row in original}
     rows = []
     documented = review = 0
@@ -56,7 +58,21 @@ def reviewed_breakdown(criteria, original, evidence, decisions):
         reviewed = []
         surviving = []
         rejected = []
+        reviewed_jd = []
         for quote in cited:
+            jd_event = jd_reviews.get(quote_key(criterion.id, quote))
+            jd_action = jd_event.corrected_value or {} if jd_event else {}
+            if jd_action.get("decision") == "REJECT":
+                rejected.append(quote)
+                continue
+            if jd_action.get("decision") in {"APPROVE", "CORRECT"}:
+                reviewed_jd.append((
+                    jd_action.get("corrected_excerpt")
+                    if jd_action.get("decision") == "CORRECT"
+                    else quote.get("source_excerpt")
+                ))
+                surviving.append(quote)
+                continue
             matches = [e for e in evidence if _source_matches(quote, e)]
             if not matches:
                 # Never silently infer an identity for an unmatched citation.
@@ -86,6 +102,10 @@ def reviewed_breakdown(criteria, original, evidence, decisions):
             (e, event.corrected_value or {})
             for e in evidence
             if (event := decisions.get(e.id)) is not None
+            and e.field_path.startswith((
+                "technical_skills.", "employment_history.", "projects.",
+                "relevant_domain_experience.",
+            ))
             and (event.corrected_value or {}).get("decision") in {"APPROVE", "CORRECT"}
             and _has_term(
                 ((event.corrected_value or {}).get("corrected_excerpt")
@@ -97,7 +117,9 @@ def reviewed_breakdown(criteria, original, evidence, decisions):
         if (
             baseline_state in {"REVIEW_REQUIRED", "NOT_EVIDENCED"}
             and criterion.description == "Explicit technology mentioned in the job description."
-            and approved_tech_sources
+            and (approved_tech_sources or any(
+                _has_term(quote, criterion.name) for quote in reviewed_jd
+            ))
         ):
             state = "EVIDENCED"
         if state == "EVIDENCED":
@@ -107,9 +129,9 @@ def reviewed_breakdown(criteria, original, evidence, decisions):
         rows.append({
             "criterion_id": criterion.id, "criterion": criterion.name,
             "weight": criterion.weight, "AI status": baseline_state,
-            "HR status": state, "reviewed_sources": len(reviewed) + len(approved_tech_sources),
+            "HR status": state, "reviewed_sources": len(reviewed) + len(approved_tech_sources) + len(reviewed_jd),
             "excluded_sources": len(rejected),
-            "reason": "HR source review applied" if reviewed or rejected or approved_tech_sources
+            "reason": "HR source review applied" if reviewed or reviewed_jd or rejected or approved_tech_sources
                       else "Unchanged from AI evidence assessment",
         })
     return {"score": documented, "review_weight": review, "breakdown": rows}
@@ -167,7 +189,12 @@ class HRScoreService:
                 ProfileReviewEvent.profile_id == profile.id,
                 ProfileReviewEvent.field_path.like(REVIEW_PREFIX + "%"),
             ).order_by(ProfileReviewEvent.id)):
-                latest[event.field_path[len(REVIEW_PREFIX):]] = event.id
+                latest[event.field_path] = event.id
+            for event in session.scalars(select(ProfileReviewEvent).where(
+                ProfileReviewEvent.profile_id == profile.id,
+                ProfileReviewEvent.field_path.like(JD_PREFIX + "%"),
+            ).order_by(ProfileReviewEvent.id)):
+                latest[event.field_path] = event.id
             data = snapshot.corrected_value or {}
             return (
                 data.get("configuration_id") == config.id
@@ -193,13 +220,27 @@ class HRScoreService:
                 ProfileReviewEvent.profile_id == profile.id,
                 ProfileReviewEvent.field_path.like(REVIEW_PREFIX + "%"),
             ).order_by(ProfileReviewEvent.id)))
+            jd_events = list(session.scalars(select(ProfileReviewEvent).where(
+                ProfileReviewEvent.profile_id == profile.id,
+                ProfileReviewEvent.field_path.like(JD_PREFIX + "%"),
+            ).order_by(ProfileReviewEvent.id)))
+            events.extend(jd_events)
             if not events:
                 raise ATSError("Review at least one source quotation before recalculating.")
+            latest_events = {event.field_path: event for event in events}
             latest = {
-                event.field_path[len(REVIEW_PREFIX):]: event for event in events
+                path[len(REVIEW_PREFIX):]: event
+                for path, event in latest_events.items()
+                if path.startswith(REVIEW_PREFIX)
             }
-            computed = reviewed_breakdown(criteria, score.breakdown, evidence, latest)
-            source_event_ids = sorted(event.id for event in latest.values())
+            latest_jd = {
+                path: event for path, event in latest_events.items()
+                if path.startswith(JD_PREFIX)
+            }
+            computed = reviewed_breakdown(
+                criteria, score.breakdown, evidence, latest, latest_jd
+            )
+            source_event_ids = sorted(event.id for event in latest_events.values())
             last = session.scalar(select(ProfileReviewEvent).where(
                 ProfileReviewEvent.profile_id == profile.id,
                 ProfileReviewEvent.field_path == SCORE_PREFIX + str(config.id),
