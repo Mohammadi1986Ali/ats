@@ -85,7 +85,7 @@ class CandidateProfileService:
         payload = copy.deepcopy(profile.original_extraction)
         for event in profile.reviews:
             if event.field_path != "__validation__" and not event.field_path.startswith(
-                "__evidence_review__."
+                ("__evidence_review__.", "__hr_score__.")
             ):
                 apply_value(payload, event.field_path, event.corrected_value)
         return payload
@@ -94,7 +94,7 @@ class CandidateProfileService:
     def status(profile: CandidateProfile) -> str:
         profile_events = [
             event for event in profile.reviews
-            if not event.field_path.startswith("__evidence_review__.")
+            if not event.field_path.startswith(("__evidence_review__.", "__hr_score__."))
         ]
         if profile_events:
             return (
