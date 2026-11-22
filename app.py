@@ -11,6 +11,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from job_hire_ai.cv_ui import cv_analysis_page
 from job_hire_ai.dashboard_ui import pipeline_monitor
 from job_hire_ai.errors import ATSError
+from job_hire_ai.hr_review_ui import candidate_review
 from job_hire_ai.runtime import Runtime
 from job_hire_ai.settings import ROOT, Settings
 from job_hire_ai.ui import candidates, dashboard, jobs
@@ -73,7 +74,7 @@ st.sidebar.caption(f"Running local code: {app_revision}")
 st.sidebar.caption("Applicant tracking · Job and CV analysis")
 page = st.sidebar.radio(
     "Navigation",
-    ["Dashboard", "Pipeline Monitor", "Job Management", "Candidate Management", "CV Analysis"],
+    ["Dashboard", "Pipeline Monitor", "HR Candidate Review", "Job Management", "Candidate Management", "CV Analysis"],
     key="navigation",
 )
 st.sidebar.caption("Local prototype · no authentication. Use on a trusted computer.")
@@ -83,6 +84,7 @@ try:
     {
         "Dashboard": dashboard,
         "Pipeline Monitor": pipeline_monitor,
+        "HR Candidate Review": candidate_review,
         "Job Management": jobs,
         "Candidate Management": candidates,
         "CV Analysis": cv_analysis_page,
