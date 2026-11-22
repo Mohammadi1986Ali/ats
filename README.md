@@ -623,3 +623,15 @@ available. No schema migration or data reset is required.
 
 Targeted tests (not yet verified in the current remote session):
 `uv run pytest -q tests/test_hr_score_service.py tests/test_evidence_review_service.py`.
+
+
+### HR source quotation selection — usability
+
+The evidence picker is grouped by distinct source excerpt and document reference,
+rather than repeating one sentence for every extracted skill. HR may filter by
+qualification category, exact source-text keywords and verified/unverified state.
+If one quotation supports several extracted records, the reviewer explicitly
+selects which specific qualification to review. All underlying source record IDs
+and audit history remain unchanged; no bulk approval or deletion is implicit.
+Unverified placeholder excerpts remain separately inspectable and rejectable,
+not approvable.
