@@ -12,6 +12,7 @@ from job_hire_ai.ai.cv_prompts import CV_PROMPT_TOKEN_RESERVE, CV_PROMPT_VERSION
 from job_hire_ai.ai.cv_schemas import PROFILE_SECTIONS, SCHEMA_VERSION
 from job_hire_ai.ai.cv_wire import WIRE_VERSION
 from job_hire_ai.ai.extraction_merger import merge_extractions
+from job_hire_ai.ai.employment_normalizer import NORMALIZATION_VERSION, normalize_employment
 from job_hire_ai.ai.literal_cv_fallback import FAST_MODE_WARNING, extract_literal_skills
 from job_hire_ai.ai.provider import InferenceMetrics
 from job_hire_ai.database.models import (
@@ -203,6 +204,7 @@ class CVAnalysisService:
                     "literal_fallback": self.settings.cv_literal_fallback_enabled,
                     "fast_mode_1b": self.settings.cv_fast_mode_1b,
                     "fallback_version": "literal-section-profile-v3",
+                    "employment_normalization": NORMALIZATION_VERSION,
                     "cv_chunk_chars": self.settings.cv_chunk_chars,
                     "cv_truncation_retries": self.settings.cv_truncation_retries,
                     "cv_max_model_calls": self.settings.cv_max_model_calls,
@@ -479,6 +481,9 @@ class CVAnalysisService:
         config_hash,
         started,
     ):
+        # Normalize every model and literal-fallback path before persisting a
+        # new extraction. Never alter older profile versions or their HR audits.
+        extraction = normalize_employment(extraction, source)
         warnings = list(source.warnings) + list(extraction.extraction_warnings)
         evidence = []
         for section in PROFILE_SECTIONS:
