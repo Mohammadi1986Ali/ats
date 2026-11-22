@@ -635,3 +635,17 @@ selects which specific qualification to review. All underlying source record IDs
 and audit history remain unchanged; no bulk approval or deletion is implicit.
 Unverified placeholder excerpts remain separately inspectable and rejectable,
 not approvable.
+
+
+### JD-first HR source evidence review
+
+**HR Candidate Review** now asks for the active JD requirement before showing
+the source quotation table. For a completed Llama assessment it uses the
+persisted per-criterion citations; otherwise it uses the persisted
+deterministic JD-to-CV match for the selected profile. A quotation is linked
+to the requirement only when its exact source reference, excerpt and page
+match a verified saved CV evidence row. The UI does not infer relationships
+from loosely similar skills. Requirements with no verified linked quotes are
+clearly marked as missing evidence, not as proof of missing competence.
+This keeps HR review organized by JD requirements and leaves the original
+source evidence and scoring snapshots untouched.
