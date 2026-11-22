@@ -84,16 +84,22 @@ class CandidateProfileService:
     def effective(profile: CandidateProfile) -> dict:
         payload = copy.deepcopy(profile.original_extraction)
         for event in profile.reviews:
-            if event.field_path != "__validation__":
+            if event.field_path != "__validation__" and not event.field_path.startswith(
+                "__evidence_review__."
+            ):
                 apply_value(payload, event.field_path, event.corrected_value)
         return payload
 
     @staticmethod
     def status(profile: CandidateProfile) -> str:
-        if profile.reviews:
+        profile_events = [
+            event for event in profile.reviews
+            if not event.field_path.startswith("__evidence_review__.")
+        ]
+        if profile_events:
             return (
                 "COMPLETED"
-                if profile.reviews[-1].field_path == "__validation__"
+                if profile_events[-1].field_path == "__validation__"
                 else "NEEDS_REVIEW"
             )
         return profile.analysis_status
