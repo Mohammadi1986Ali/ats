@@ -196,7 +196,7 @@ class LlamaScoringService:
                     return document_id
         return None
 
-    def evaluate(self, document_id: int) -> LlamaScoreResult:
+    def evaluate(self, document_id: int, *, force: bool = False) -> LlamaScoreResult:
         with self.db.transaction() as session:
             document = session.get(CandidateDocument, document_id)
             if document is None or document.application.status != "Uploaded":
@@ -218,7 +218,7 @@ class LlamaScoringService:
                 LlamaScoreResult.profile_id == profile.id,
                 LlamaScoreResult.model_name == self.provider.settings.model,
             ))
-            if existing is not None:
+            if existing is not None and not force:
                 return existing
             criteria = list(session.scalars(select(JobCriterion).where(
                 JobCriterion.configuration_id == configuration.id
@@ -228,13 +228,24 @@ class LlamaScoringService:
                 EvidenceReference.profile_id == profile.id,
                 EvidenceReference.verification_status == "VERIFIED",
             ).order_by(EvidenceReference.field_path, EvidenceReference.id)))
-            record = LlamaScoreResult(
-                document_id=document_id, configuration_id=configuration.id,
-                profile_id=profile.id, model_name=self.provider.settings.model,
-                status="RUNNING", score=None, review_weight=None, breakdown=None,
-                error_summary=None,
-            )
-            session.add(record)
+            if existing is None:
+                record = LlamaScoreResult(
+                    document_id=document_id, configuration_id=configuration.id,
+                    profile_id=profile.id, model_name=self.provider.settings.model,
+                    status="RUNNING", score=None, review_weight=None, breakdown=None,
+                    error_summary=None,
+                )
+                session.add(record)
+            else:
+                # Unique snapshot key: explicitly recheck a previous completed
+                # evaluation without deleting its CV, profile, or job criteria.
+                record = existing
+                record.status = "RUNNING"
+                record.score = None
+                record.review_weight = None
+                record.breakdown = None
+                record.error_summary = None
+                record.completed_at = None
             session.flush()
             record_id = record.id
             issue = None
