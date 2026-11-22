@@ -65,12 +65,22 @@ def reviewed_breakdown(criteria, original, evidence, decisions, jd_reviews=None)
             if jd_action.get("decision") == "REJECT":
                 rejected.append(quote)
                 continue
+            quoted_text = (
+                jd_action.get("corrected_excerpt")
+                if jd_action.get("decision") == "CORRECT"
+                else quote.get("source_excerpt")
+            )
+            # For literal JD technologies, even a genuine quotation must
+            # actually contain that technology. Source verification alone
+            # never establishes a match to the requirement.
+            if (
+                criterion.description == "Explicit technology mentioned in the job description."
+                and not _has_term(quoted_text, criterion.name)
+            ):
+                rejected.append(quote)
+                continue
             if jd_action.get("decision") in {"APPROVE", "CORRECT"}:
-                reviewed_jd.append((
-                    jd_action.get("corrected_excerpt")
-                    if jd_action.get("decision") == "CORRECT"
-                    else quote.get("source_excerpt")
-                ))
+                reviewed_jd.append(quoted_text)
                 surviving.append(quote)
                 continue
             matches = [e for e in evidence if _source_matches(quote, e)]
