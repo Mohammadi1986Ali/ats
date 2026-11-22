@@ -38,7 +38,6 @@ def _source_matches(quote, evidence):
 def reviewed_breakdown(criteria, original, evidence, decisions):
     """Compute documented/review buckets; unknown remains review, never a rejection."""
     by_id = {int(row["criterion_id"]): row for row in original}
-    known = {row.id: row for row in evidence}
     rows = []
     documented = review = 0
     if len(by_id) != len(criteria) or sum(row.weight for row in criteria) != 100:
@@ -77,16 +76,22 @@ def reviewed_breakdown(criteria, original, evidence, decisions):
         # Additional positive coverage is allowed only for the legacy *literal*
         # single-technology criterion, and only when explicitly reviewed source
         # text contains the exact criterion. No general competence inference.
-        if (
-            baseline_state == "REVIEW_REQUIRED"
-            and criterion.description == "Explicit technology mentioned in the job description."
-            and any(
-                _has_term(
-                    (action.get("corrected_excerpt") if action.get("decision") == "CORRECT"
-                     else e.source_excerpt), criterion.name
-                )
-                for e, action in reviewed
+        approved_tech_sources = [
+            (e, event.corrected_value or {})
+            for e in evidence
+            if (event := decisions.get(e.id)) is not None
+            and (event.corrected_value or {}).get("decision") in {"APPROVE", "CORRECT"}
+            and _has_term(
+                ((event.corrected_value or {}).get("corrected_excerpt")
+                 if (event.corrected_value or {}).get("decision") == "CORRECT"
+                 else e.source_excerpt),
+                criterion.name,
             )
+        ]
+        if (
+            baseline_state in {"REVIEW_REQUIRED", "NOT_EVIDENCED"}
+            and criterion.description == "Explicit technology mentioned in the job description."
+            and approved_tech_sources
         ):
             state = "EVIDENCED"
         if state == "EVIDENCED":
@@ -96,9 +101,9 @@ def reviewed_breakdown(criteria, original, evidence, decisions):
         rows.append({
             "criterion_id": criterion.id, "criterion": criterion.name,
             "weight": criterion.weight, "AI status": baseline_state,
-            "HR status": state, "reviewed_sources": len(reviewed),
+            "HR status": state, "reviewed_sources": len(reviewed) + len(approved_tech_sources),
             "excluded_sources": len(rejected),
-            "reason": "HR source review applied" if reviewed or rejected
+            "reason": "HR source review applied" if reviewed or rejected or approved_tech_sources
                       else "Unchanged from AI evidence assessment",
         })
     return {"score": documented, "review_weight": review, "breakdown": rows}
