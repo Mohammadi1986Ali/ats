@@ -56,7 +56,7 @@ class EvidenceReviewService:
             raise ATSError("Corrected text is permitted only for Correct.")
         # Validate against persisted source text, not against LLM output.
         self.profiles.get(profile_id)
-        source = self.profiles.source(profile_id) if decision == "CORRECT" else None
+        source = self.profiles.source(profile_id) if decision in {"APPROVE", "CORRECT"} else None
         with self.db.transaction() as session:
             profile = session.get(CandidateProfile, profile_id)
             if profile is None or profile.document.application.status != "Uploaded":
@@ -64,19 +64,29 @@ class EvidenceReviewService:
             evidence = session.get(EvidenceReference, evidence_id)
             if evidence is None or evidence.profile_id != profile_id:
                 raise ATSError("Evidence does not belong to this CV profile.")
-            if decision == "CORRECT":
+            if decision in {"APPROVE", "CORRECT"}:
+                if evidence.verification_status != "VERIFIED":
+                    raise ATSError(
+                        "This quotation is not verified against the original CV. "
+                        "It can only be rejected; re-extract the CV to recover "
+                        "the actual quotation and source location."
+                    )
                 matching = [
                     segment for segment in source.segments
                     if segment.reference == evidence.source_reference
                 ]
+                valid_text = (
+                    corrected_excerpt if decision == "CORRECT"
+                    else evidence.source_excerpt
+                )
                 if not any(
-                    normalize_text(corrected_excerpt).casefold()
+                    normalize_text(valid_text).casefold()
                     in normalize_text(segment.text).casefold()
                     for segment in matching
                 ):
                     raise ATSError(
-                        "Corrected quotation must appear verbatim in the same "
-                        "original CV source block. No correction was saved."
+                        "Review quotation must appear verbatim in the original CV "
+                        "source block. No approval or correction was saved."
                     )
             path = PREFIX + evidence_id
             previous = session.scalar(
