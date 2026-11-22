@@ -142,3 +142,37 @@ def test_missing_or_invalid_reviewer_is_not_persisted(ats, vacancy, pdf):
     with pytest.raises(ATSError, match="reviewer and a reason"):
         ats.hr_scores.calculate(doc_id, "", "Reviewed.")
     assert ats.hr_scores.history(doc_id) == []
+
+
+
+def test_negative_skill_mention_does_not_become_positive_coverage():
+    criterion = SimpleNamespace(
+        id=11, name="Java", weight=100,
+        description="Explicit technology mentioned in the job description.",
+    )
+    evidence = [SimpleNamespace(
+        id="e1", source_excerpt="No Java", source_reference="pdf:p1:block1",
+        page_number=1,
+    )]
+    original = [{"criterion_id": 11, "status": "REVIEW_REQUIRED", "evidence": []}]
+    approved = SimpleNamespace(corrected_value={"decision": "APPROVE"})
+    result = reviewed_breakdown([criterion], original, evidence, {"e1": approved})
+    assert result["score"] == 0
+    assert result["review_weight"] == 100
+
+
+def test_score_snapshot_becomes_stale_after_new_hr_evidence_review(ats, vacancy, pdf):
+    doc_id, profile_id, evidence_id = _setup(ats, vacancy, pdf)
+    first_review = ats.evidence_reviews.record(
+        profile_id, evidence_id, "APPROVE", "HR", "Verified."
+    )
+    ats.hr_scores.calculate(doc_id, "HR", "First scoring.")
+    snapshot = ats.hr_scores.history(doc_id)[0]
+    assert ats.hr_scores.is_current(doc_id, snapshot)
+    ats.evidence_reviews.record(
+        profile_id, evidence_id, "REJECT", "HR",
+        "New assessment.", expected_last_event_id=first_review,
+    )
+    assert not ats.hr_scores.is_current(doc_id, snapshot)
+    ats.hr_scores.calculate(doc_id, "HR", "Recalculated.")
+    assert ats.hr_scores.is_current(doc_id, ats.hr_scores.history(doc_id)[0])
