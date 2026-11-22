@@ -578,3 +578,21 @@ The functionality uses existing tables; no schema migration or data reset is
 required. Run `uv run pytest -q tests/test_hr_review_ui.py` for its targeted
 regression tests.
 
+
+## Phase 4.2: human evidence reviews
+
+Open **HR Candidate Review**, select a CV, then select a stored source quotation
+under **HR evidence review**. A reviewer can **Approve**, **Reject**, or **Correct**
+the quotation and must supply a reviewer name and a reason. Corrections must be
+literal excerpts within the same stored original source block, so unsupported text
+cannot be entered as verified evidence.
+
+Every action is append-only in the existing `profile_review_events` table with a
+dedicated `__evidence_review__.` field path. The original CV, model-extracted
+profile, extraction evidence, matching output, and scoring snapshots remain intact.
+The latest action for a source is shown alongside its full history; a stale browser
+form cannot overwrite a newer review. Human reviews are not hiring decisions.
+Re-scoring against HR-reviewed evidence belongs to Phase 4.3.
+
+No migration or data reset is required. Targeted regression checks:
+`uv run pytest -q tests/test_evidence_review_service.py`.
