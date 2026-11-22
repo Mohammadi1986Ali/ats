@@ -83,6 +83,60 @@ def evidence_choice_label(evidence):
     return f"{status} · {section} · {preview} · {location}"
 
 
+def evidence_record_label(evidence, profile_data):
+    """Resolve opaque claim paths to human-readable extracted qualification names."""
+    parts = evidence.field_path.split(".")
+    section = parts[0].replace("_", " ").title()
+    if len(parts) < 2 or not parts[1].isdigit():
+        return section
+    records = profile_data.get(parts[0]) or []
+    index = int(parts[1])
+    if index >= len(records) or not isinstance(records[index], dict):
+        return f"{section} #{index + 1}"
+    record = records[index]
+    for field in ("name", "original_wording", "job_title", "employer", "degree",
+                  "project_name", "language", "information", "institution"):
+        value = record.get(field)
+        if isinstance(value, str) and value.strip():
+            return f"{section}: {value.strip()[:80]}"
+    return f"{section} #{index + 1}"
+
+
+def evidence_groups(evidence, profile_data):
+    """Show identical source text only once, retaining every underlying review ID."""
+    groups = {}
+    for item in evidence:
+        normalized = " ".join((item.source_excerpt or "").split()).casefold()
+        key = (normalized, item.source_reference, item.page_number,
+               item.verification_status)
+        groups.setdefault(key, []).append(item)
+    result = []
+    for group in groups.values():
+        group.sort(key=lambda e: (e.field_path, e.id))
+        labels = list(dict.fromkeys(evidence_record_label(e, profile_data) for e in group))
+        result.append((group, labels))
+    return sorted(
+        result,
+        key=lambda pair: (
+            pair[0][0].verification_status != "VERIFIED",
+            pair[0][0].page_number or 999999,
+            pair[0][0].source_reference or "",
+            pair[0][0].source_excerpt.casefold(),
+        ),
+    )
+
+
+def grouped_evidence_label(grouped):
+    items, labels = grouped
+    representative = items[0]
+    excerpt = " ".join(representative.source_excerpt.split())
+    preview = excerpt[:100] + ("…" if len(excerpt) > 100 else "")
+    state = "Verified" if representative.verification_status == "VERIFIED" else "Unverified"
+    page = f"p. {representative.page_number}" if representative.page_number else "page unknown"
+    topic = labels[0] if len(labels) == 1 else f"{len(labels)} linked qualifications"
+    return f"{topic} · {preview} · {page} · {state}"
+
+
 def candidate_review(ats):
     st.title("HR Candidate Review")
     st.caption(
@@ -284,31 +338,84 @@ def candidate_review(ats):
         )
         evidence_list = sorted(
             profile.evidence,
-            key=lambda e: (
-                e.verification_status != "VERIFIED",
-                e.field_path, e.source_reference or "", e.id,
-            ),
+            key=lambda e: (e.verification_status != "VERIFIED",
+                           e.field_path, e.source_reference or "", e.id),
         )
         verified_count = sum(
             e.verification_status == "VERIFIED" for e in evidence_list
         )
         if verified_count != len(evidence_list):
             st.warning(
-                f"{len(evidence_list) - verified_count} of {len(evidence_list)} "
-                "stored quotations could not be verified against the original CV. "
-                "These are model-generated or unmatched text, not reliable CV "
-                "evidence. They cannot be approved or used to increase HR scores. "
-                "Inspect the original CV and rerun profile extraction if needed."
+                f"{len(evidence_list) - verified_count} source quotation(s) "
+                "cannot be verified against the original CV. They cannot be "
+                "approved or used to increase HR scoring."
             )
         if not evidence_list:
             st.info("No extracted source evidence is available for HR review.")
         else:
-            selected_evidence = st.selectbox(
-                "Select source quotation",
-                evidence_list,
-                format_func=evidence_choice_label,
-                key=f"hr_evidence_choice_{selected}_{profile.id}",
+            category = st.selectbox(
+                "Qualification category",
+                ["All", *sorted({
+                    e.field_path.split(".")[0].replace("_", " ").title()
+                    for e in evidence_list
+                })],
+                key=f"hr_evidence_category_{selected}_{profile.id}",
             )
+            query = st.text_input(
+                "Search skill, employer or evidence text",
+                key=f"hr_evidence_search_{selected}_{profile.id}",
+                placeholder="e.g. Java, PostgreSQL, Kubernetes",
+            ).strip().casefold()
+            status_filter = st.radio(
+                "Evidence verification", ["Verified", "Unverified", "All"],
+                horizontal=True,
+                key=f"hr_evidence_status_{selected}_{profile.id}",
+            )
+            matching = [
+                e for e in evidence_list
+                if (category == "All" or
+                    e.field_path.split(".")[0].replace("_", " ").title() == category)
+                and (status_filter == "All" or
+                     (e.verification_status == "VERIFIED") ==
+                     (status_filter == "Verified"))
+                and (not query or query in (
+                    e.source_excerpt + " " + evidence_record_label(e, payload)
+                ).casefold())
+            ]
+            groups = evidence_groups(matching, payload)
+            st.caption(
+                f"{len(groups)} distinct source quotations from "
+                f"{len(matching)} saved evidence records"
+            )
+            if not groups:
+                st.info("No evidence matches these filters.")
+                st.stop()
+            chosen_group = st.selectbox(
+                "Select a unique source quotation",
+                range(len(groups)),
+                format_func=lambda i: grouped_evidence_label(groups[i]),
+                key=f"hr_evidence_group_{selected}_{profile.id}_{category}_{status_filter}_{query}",
+            )
+            members, linked_labels = groups[chosen_group]
+            st.caption(
+                f"Linked qualifications: {', '.join(linked_labels)}"
+            )
+            if len(members) > 1:
+                st.info(
+                    f"This quotation is cited by {len(members)} extracted records. "
+                    "Select which qualification to review; other records stay unchanged."
+                )
+                selected_evidence = st.selectbox(
+                    "Qualification to review",
+                    members,
+                    format_func=lambda e: (
+                        f"{evidence_record_label(e, payload)} "
+                        f"(record {e.field_path.rsplit('.', 1)[-1]})"
+                    ),
+                    key=f"hr_evidence_record_{selected}_{profile.id}_{chosen_group}",
+                )
+            else:
+                selected_evidence = members[0]
             st.markdown("**Stored extraction quotation**")
             st.write(selected_evidence.source_excerpt)
             if selected_evidence.verification_status != "VERIFIED":
