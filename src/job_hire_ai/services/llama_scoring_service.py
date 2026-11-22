@@ -346,6 +346,55 @@ class LlamaScoringService:
                 permitted = {refs_to_ids[row.id] for row in chosen.values()}
                 for criterion in batch:
                     item = received[criterion.id]
+                    # Small models sometimes put EVIDENCED in the explanation
+                    # but return REVIEW_REQUIRED as the structured status.
+                    # Resolve the contradiction with a focused second check.
+                    # Never infer positive score from free-text reasoning alone.
+                    if (
+                        item.status != "EVIDENCED"
+                        and item.reason.strip().upper() == "EVIDENCED"
+                        and item.evidence_ids
+                    ):
+                        relevant = [
+                            {"id": refs_to_ids[row.id], "excerpt": row.source_excerpt[:250]}
+                            for row in evidence_by_criterion[criterion.id][:5]
+                        ]
+                        try:
+                            checked = self.provider.generate_structured(
+                                [
+                                    {"role": "system", "content": (
+                                        "Your previous answer contradicted itself. "
+                                        "Choose a structured status based ONLY on the cited "
+                                        "CV excerpts. EVIDENCED requires direct support of "
+                                        "the entire requirement; otherwise REVIEW_REQUIRED. "
+                                        "Return a short specific reason, never a status word "
+                                        "as the reason. Do not invent evidence IDs."
+                                    )},
+                                    {"role": "user", "content": json.dumps({
+                                        "criterion_id": criterion.id,
+                                        "requirement": criterion.name,
+                                        "details": criterion.description[:160],
+                                        "excerpts": relevant,
+                                    }, ensure_ascii=False)},
+                                ],
+                                LlamaCriterionFinding, output_limit=260,
+                            ).extraction
+                            valid_for_check = {row["id"] for row in relevant}
+                            if (
+                                checked.criterion_id == criterion.id
+                                and all(e in valid_for_check for e in checked.evidence_ids)
+                                and (checked.status != "EVIDENCED" or checked.evidence_ids)
+                            ):
+                                item = checked
+                            else:
+                                item = item.model_copy(update={
+                                    "reason": "Conflicting model finding; human review required.",
+                                })
+                        except (ATSError, ProviderError):
+                            item = item.model_copy(update={
+                                "reason": "Conflicting model finding; human review required.",
+                            })
+                    received[criterion.id] = item
                     if any(ref not in permitted for ref in item.evidence_ids):
                         raise ATSError(
                             "Llama invented an evidence ID or used evidence not in its input."
