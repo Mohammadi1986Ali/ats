@@ -553,3 +553,24 @@ Restart ATS using `Start ATS.cmd` after fetching this branch. Existing
 documents with completed evidence checks and current embeddings will
 automatically enter vector matching; no CV reupload, manual criteria, or
 PowerShell retry command is necessary.
+
+
+## Phase 4.1: HR Candidate Review (read-only)
+
+The sidebar **HR Candidate Review** page lets a human reviewer select a job and
+an uploaded CV, search records, download the original file and inspect the most
+recent stored extraction profile. It displays the current model-backed JD evidence
+score (or clearly labeled rule-based fallback), unresolved coverage, criteria,
+source excerpts and their provenance. Failed or missing model runs are shown
+as such, never disguised as successful scores.
+
+This page reuses existing persisted results and does not execute LLM inference,
+alter candidate records, record decisions, change evidence, or delete CV files.
+A score is coverage of documented job-description evidence, **not a hiring
+recommendation**. HR correction, score recalculation after correction, hiring
+decisions and decision history are separate future phases (4.2–4.5).
+
+The functionality uses existing tables; no schema migration or data reset is
+required. Run `uv run pytest -q tests/test_hr_review_ui.py` for its targeted
+regression tests.
+
