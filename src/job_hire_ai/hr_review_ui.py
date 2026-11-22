@@ -290,6 +290,26 @@ def candidate_review(ats):
             f"Review status: {ats.profiles.status(profile).replace('_', ' ').title()}"
         )
         payload = ats.profiles.effective(profile)
+        employment_count = len(payload.get("employment_history") or [])
+        if employment_count > 10:
+            st.error(
+                f"This extraction contains {employment_count} separate employment "
+                "records. The 1B model may have split one real job into multiple "
+                "records. Do not treat this count as the number of jobs. "
+                "Re-analyze the original CV with the corrected employment parser."
+            )
+        if st.button(
+            "Re-analyze CV with corrected job parsing",
+            key=f"hr_reanalyze_jobs_{selected}_{profile.id}",
+        ):
+            try:
+                batch_id = ats.cv_analysis.create_batch(job.id, [selected], force=True)
+                with st.spinner("Extracting a new source-backed CV profile…"):
+                    ats.cv_analysis.process_batch(batch_id)
+                st.success("CV re-analysis finished. Check the new profile version.")
+                st.rerun()
+            except ATSError as exc:
+                st.error(str(exc))
         sections = (
             ("employment_history", "Work experience"),
             ("technical_skills", "Technical skills"),
