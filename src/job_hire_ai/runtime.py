@@ -10,6 +10,7 @@ from job_hire_ai.services.criteria_service import CriteriaService
 from job_hire_ai.services.cv_analysis_service import CVAnalysisService
 from job_hire_ai.services.dashboard_service import DashboardService
 from job_hire_ai.services.document_service import DocumentService
+from job_hire_ai.services.evidence_review_service import EvidenceReviewService
 from job_hire_ai.services.embedding_service import LocalEmbedder
 from job_hire_ai.services.job_matching_service import JobMatchingService
 from job_hire_ai.services.llama_scoring_service import LlamaScoringService, scoring_model_settings
@@ -53,6 +54,7 @@ class Runtime:
         )
         self.job_analysis = JobAnalysisService(self.db, self.provider, self.ollama_settings)
         self.profiles = CandidateProfileService(self.db)
+        self.evidence_reviews = EvidenceReviewService(self.db, self.profiles)
         self.cv_analysis = CVAnalysisService(
             self.db,
             self.documents,
