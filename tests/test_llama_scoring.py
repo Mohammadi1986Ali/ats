@@ -434,24 +434,31 @@ def test_existing_contradictory_score_is_automatically_requeued(
             DocumentPipelineStage.document_id == doc_id,
             DocumentPipelineStage.stage == "SCORING",
         )).status = "COMPLETED"
+    with ats.db.transaction() as session:
+        profile_id = session.scalar(select(CandidateScoreSnapshot.profile_id).where(
+            CandidateScoreSnapshot.document_id == doc_id
+        ))
+        if profile_id is None:
+            from job_hire_ai.database.models import CandidateProfile
+            profile_id = session.scalar(select(CandidateProfile.id).where(
+                CandidateProfile.document_id == doc_id
+            ))
+        session.add(LlamaScoreResult(
+            document_id=doc_id, profile_id=profile_id,
+            configuration_id=config_id, model_name="llama3.2:1b",
+            status="COMPLETED", score=0, review_weight=100,
+            breakdown=[{"criterion_id": criterion_id, "criterion": "Java",
+                        "status": "REVIEW_REQUIRED", "reason": "EVIDENCED",
+                        "evidence": [{"source_excerpt": "Java and SQL experience."}]}],
+            error_summary=None,
+        ))
     model = provider([{
-        "criterion_id": criterion_id,
-        "status": "REVIEW_REQUIRED",
-        "evidence_ids": ["e1"],
-        "reason": "EVIDENCED",
+        "criterion_id": criterion_id, "status": "EVIDENCED",
+        "evidence_ids": ["e1"], "reason": "Directly supported Java experience.",
     }])
     scorer = LlamaScoringService(ats.db, model)
-    stale = scorer.evaluate(doc_id)
-    assert stale.score == 0
+    stale = scorer.current(doc_id)
     assert scorer.pending_document() == doc_id
-    model.generate_structured.side_effect = None
-    model.generate_structured.return_value = SimpleNamespace(
-        extraction=LlamaAssessment.model_validate({"findings": [{
-            "criterion_id": criterion_id, "status": "EVIDENCED",
-            "evidence_ids": ["e1"],
-            "reason": "Directly supported Java experience.",
-        }]}),
-    )
     current = scorer.evaluate(doc_id)
     assert current.id == stale.id
     assert current.score == 100
