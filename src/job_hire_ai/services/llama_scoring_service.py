@@ -94,6 +94,33 @@ def _relevant_evidence(criterion, evidence, limit=12):
     return selected, len(evidence) > len(selected)
 
 
+def _literal_skill_evidence(criterion, item, references) -> bool:
+    """Resolve a narrow 1B contradiction for literal JD technology criteria.
+
+    Only a verified, cited source that actually mentions the named technology
+    may count. This measures CV-document coverage, not proficiency.
+    """
+    if (
+        criterion.description != "Explicit technology mentioned in the job description."
+        or item.status != "REVIEW_REQUIRED"
+        or item.reason.strip().upper() != "EVIDENCED"
+        or not item.evidence_ids
+    ):
+        return False
+    token = re.compile(r"(?<!\\w)" + re.escape(criterion.name.strip()) + r"(?!\\w)", re.I)
+    for evidence_id in item.evidence_ids:
+        source = references.get(evidence_id)
+        if source is None:
+            continue
+        excerpt = source.source_excerpt
+        if token.search(excerpt) and not re.search(
+            r"\\b(no|not|without|lack(?:s|ing)?|never)\\s+(?:experience\\s+(?:in|with)\\s+)?"
+            + re.escape(criterion.name.strip()) + r"\\b", excerpt, re.I
+        ):
+            return True
+    return False
+
+
 def _has_conflicting_findings(result) -> bool:
     """Identify old 1B outputs with a review status but an EVIDENCED-only reason."""
     return (
@@ -378,7 +405,12 @@ class LlamaScoringService:
                     # but return REVIEW_REQUIRED as the structured status.
                     # Resolve the contradiction with a focused second check.
                     # Never infer positive score from free-text reasoning alone.
-                    if (
+                    if _literal_skill_evidence(criterion, item, valid_refs):
+                        item = item.model_copy(update={
+                            "status": "EVIDENCED",
+                            "reason": "Verified CV excerpt explicitly mentions the JD technology.",
+                        })
+                    elif (
                         item.status != "EVIDENCED"
                         and item.reason.strip().upper() == "EVIDENCED"
                         and item.evidence_ids
