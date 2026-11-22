@@ -20,6 +20,7 @@ from job_hire_ai.services.llama_scoring_service import (
     LlamaCriterionFinding,
     LlamaScoringService,
     _relevant_evidence,
+    _literal_skill_evidence,
     evidence_classification,
     score_band,
 )
@@ -463,3 +464,33 @@ def test_existing_contradictory_score_is_automatically_requeued(
     assert current.id == stale.id
     assert current.score == 100
     assert scorer.pending_document() is None
+
+
+
+def test_literal_skill_contradiction_requires_direct_verified_skill_quote():
+    criterion = SimpleNamespace(
+        name="Java",
+        description="Explicit technology mentioned in the job description.",
+    )
+    finding = LlamaCriterionFinding(
+        criterion_id=11,
+        status="REVIEW_REQUIRED",
+        reason="EVIDENCED",
+        evidence_ids=["e1"],
+    )
+    assert _literal_skill_evidence(
+        criterion, finding, {"e1": SimpleNamespace(source_excerpt="Java")},
+    )
+    assert not _literal_skill_evidence(
+        criterion, finding, {"e1": SimpleNamespace(source_excerpt="Master of Science")},
+    )
+    assert not _literal_skill_evidence(
+        criterion, finding, {"e1": SimpleNamespace(source_excerpt="Not Java")},
+    )
+    assert not _literal_skill_evidence(criterion, finding, {})
+    other = criterion.__class__(
+        name="Java", description="Five years of professional Java experience.",
+    )
+    assert not _literal_skill_evidence(
+        other, finding, {"e1": SimpleNamespace(source_excerpt="Java")},
+    )
