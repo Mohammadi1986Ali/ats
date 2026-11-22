@@ -107,15 +107,15 @@ def _literal_skill_evidence(criterion, item, references) -> bool:
         or not item.evidence_ids
     ):
         return False
-    token = re.compile(r"(?<!\\w)" + re.escape(criterion.name.strip()) + r"(?!\\w)", re.I)
+    token = re.compile(r"(?<!\w)" + re.escape(criterion.name.strip()) + r"(?!\w)", re.I)
     for evidence_id in item.evidence_ids:
         source = references.get(evidence_id)
         if source is None:
             continue
         excerpt = source.source_excerpt
         if token.search(excerpt) and not re.search(
-            r"\\b(no|not|without|lack(?:s|ing)?|never)\\s+(?:experience\\s+(?:in|with)\\s+)?"
-            + re.escape(criterion.name.strip()) + r"\\b", excerpt, re.I
+            r"\b(no|not|without|lack(?:s|ing)?|never)\s+(?:experience\s+(?:in|with)\s+)?"
+            + re.escape(criterion.name.strip()) + r"\b", excerpt, re.I
         ):
             return True
     return False
