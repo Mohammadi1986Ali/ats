@@ -57,7 +57,7 @@ def test_reject_then_correct_retains_both_events(ats, vacancy, pdf):
 
 def test_correction_must_be_present_in_same_original_source(ats, vacancy, pdf):
     _, profile_id, evidence_id = _sample(ats, vacancy, pdf)
-    with pytest.raises(ATSError, match="same original CV source block"):
+    with pytest.raises(ATSError, match="original CV source block"):
         ats.evidence_reviews.record(
             profile_id, evidence_id, "CORRECT", "HR",
             "Corrected quotation", corrected_excerpt="invented Kubernetes skill",
@@ -122,3 +122,41 @@ def test_history_contains_persisted_reviewer_and_note(ats, vacancy, pdf):
         assert event.reviewer == "Recruiter"
         assert event.note.startswith("Quote does not")
         assert event.field_path == "__evidence_review__." + evidence_id
+
+
+def test_unverified_placeholder_cannot_be_approved_or_corrected(ats, vacancy, pdf):
+    _, profile_id, evidence_id = _sample(ats, vacancy, pdf)
+    with ats.db.transaction() as session:
+        row = session.get(EvidenceReference, evidence_id)
+        row.source_excerpt = "exact short source text"
+        row.source_reference = None
+        row.page_number = None
+        row.verification_status = "UNVERIFIED"
+    with pytest.raises(ATSError, match="not verified"):
+        ats.evidence_reviews.record(
+            profile_id, evidence_id, "APPROVE", "HR", "Not actually in CV."
+        )
+    with pytest.raises(ATSError, match="not verified"):
+        ats.evidence_reviews.record(
+            profile_id, evidence_id, "CORRECT", "HR",
+            "Attempt to fix", corrected_excerpt="Java",
+        )
+    event = ats.evidence_reviews.record(
+        profile_id, evidence_id, "REJECT", "HR",
+        "Placeholder quote cannot be found in uploaded CV.",
+    )
+    assert event
+    assert len(ats.evidence_reviews.history(profile_id, evidence_id)) == 1
+
+
+def test_verified_row_with_wrong_source_is_not_approvable(ats, vacancy, pdf):
+    _, profile_id, evidence_id = _sample(ats, vacancy, pdf)
+    with ats.db.transaction() as session:
+        row = session.get(EvidenceReference, evidence_id)
+        row.source_excerpt = "imaginary CV text"
+        row.verification_status = "VERIFIED"
+    with pytest.raises(ATSError, match="original CV source block"):
+        ats.evidence_reviews.record(
+            profile_id, evidence_id, "APPROVE", "HR", "Must fail source recheck."
+        )
+    assert ats.evidence_reviews.history(profile_id) == []
