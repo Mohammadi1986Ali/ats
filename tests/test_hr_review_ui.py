@@ -1,7 +1,7 @@
 """Phase 4.1 HR review: read-only projections and existing ATS integration."""
 from types import SimpleNamespace
 
-from job_hire_ai.hr_review_ui import criterion_details, review_summary
+from job_hire_ai.hr_review_ui import (criterion_details, evidence_choice_label, review_summary)
 from tests.test_job_matching import approve_criteria, make_data
 
 
@@ -75,3 +75,25 @@ def test_review_reads_real_uploaded_document_without_writing(ats, vacancy, pdf):
     assert kind == "pdf"
     profile = ats.profiles.list(document_id=doc_id)
     assert profile and profile[0].document_id == doc_id
+
+
+def test_unverified_extraction_is_not_presented_as_verified_cv_evidence():
+    evidence = SimpleNamespace(
+        field_path="education.0", source_excerpt="exact short source text",
+        page_number=None, verification_status="UNVERIFIED",
+    )
+    label = evidence_choice_label(evidence)
+    assert "Unverified" in label
+    assert "page unknown" in label
+    assert "exact short source text" in label
+
+
+def test_verified_evidence_label_is_human_readable():
+    evidence = SimpleNamespace(
+        field_path="technical_skills.1", source_excerpt="Java and PostgreSQL",
+        page_number=2, verification_status="VERIFIED",
+    )
+    label = evidence_choice_label(evidence)
+    assert "Verified CV quote" in label
+    assert "Technical Skills" in label
+    assert "page 2" in label
