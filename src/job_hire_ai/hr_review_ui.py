@@ -364,263 +364,137 @@ def candidate_review(ats):
                     f"{e.source_reference or 'Source reference unavailable'}"
                 )
                 st.divider()
-        st.subheader("HR evidence review")
+        st.subheader("HR evidence review — by JD requirement")
         st.caption(
-            "Review evidence linked to a JD requirement. Every HR action is "
-            "recorded with its reason; original CV and AI results stay unchanged. "
-            "Recalculate the HR score separately below."
+            "Select a job requirement first. Source quotations below are linked "
+            "directly by the saved Llama assessment and verified against the "
+            "original CV. Extracted profile categories are not used as evidence labels."
         )
-        evidence_list = sorted(
-            profile.evidence,
-            key=lambda e: (e.verification_status != "VERIFIED",
-                           e.field_path, e.source_reference or "", e.id),
-        )
-        verified_count = sum(
-            e.verification_status == "VERIFIED" for e in evidence_list
-        )
-        if verified_count != len(evidence_list):
-            st.warning(
-                f"{len(evidence_list) - verified_count} source quotation(s) "
-                "cannot be verified against the original CV. They cannot be "
-                "approved or used to increase HR scoring."
-            )
-        outcome_for_jd = outcomes[selected]
+        current_assessment = outcomes[selected]
         if (
-            outcome_for_jd is not None
-            and outcome_for_jd.status == "COMPLETED"
-            and outcome_for_jd.breakdown
+            current_assessment is None or current_assessment.status != "COMPLETED"
+            or not current_assessment.breakdown
+            or current_assessment.profile_id != profile.id
         ):
-            requirement_findings = outcome_for_jd.breakdown
-        else:
-            persisted_matches = [
-                m for m in ats.job_matching.list_for_vacancy(job.id)
-                if m.document_id == selected
-                and m.profile_id == profile.id
-            ]
-            requirement_findings = (
-                persisted_matches[0].criteria_results if persisted_matches else []
-            )
-        scoped_evidence = evidence_list
-        chosen_requirement = None
-        if requirement_findings:
-            st.markdown("**Step 1 — Choose a JD requirement**")
-            requirement_options = list(range(len(requirement_findings)))
-            selection = st.selectbox(
-                "Job requirement",
-                requirement_options,
-                format_func=lambda idx: (
-                    str(
-                        requirement_findings[idx].get("criterion")
-                        or requirement_findings[idx].get("name")
-                        or "Requirement"
-                    )
-                    + f" · {requirement_findings[idx].get('weight', '?')}% "
-                    + f"· {requirement_findings[idx].get('status', 'UNKNOWN')}"
-                ),
-                key=f"hr_requirement_{selected}_{profile.id}",
-            )
-            chosen_requirement = requirement_findings[selection]
-            st.caption(
-                "Evidence below is linked to this specific JD requirement "
-                "by the saved scoring/matching result, not by keyword guessing."
-            )
-            scoped_evidence = requirement_evidence(chosen_requirement, evidence_list)
-            st.write(
-                f"**Linked verified CV evidence:** {len(scoped_evidence)} "
-                f"· **Weight:** {chosen_requirement.get('weight', '?')}%"
-            )
-            if not scoped_evidence:
-                st.warning(
-                    "No verified CV quotation is linked to this JD requirement. "
-                    "It cannot be approved as supported from this view. "
-                    "Check the Job requirements section below."
-                )
-        else:
             st.warning(
-                "No persisted JD-to-CV matching exists. Run matching/scoring "
-                "before reviewing evidence by requirement."
+                "A completed, current JD evidence assessment is required "
+                "for requirement-specific HR review."
             )
-            scoped_evidence = []
-        if not scoped_evidence:
-            st.info("No linked source quotations to review for this requirement.")
         else:
-            category = st.selectbox(
-                "Qualification category",
-                ["All", *sorted({
-                    e.field_path.split(".")[0].replace("_", " ").title()
-                    for e in scoped_evidence
-                })],
-                key=f"hr_evidence_category_{selected}_{profile.id}",
+            findings = current_assessment.breakdown
+            index = st.selectbox(
+                "JD requirement",
+                range(len(findings)),
+                format_func=lambda i: (
+                    f"{findings[i].get('criterion', 'Requirement')} · "
+                    f"{findings[i].get('weight', '?')}% · "
+                    f"{findings[i].get('status', 'UNKNOWN')}"
+                ),
+                key=f"jd_quote_requirement_{selected}_{profile.id}",
             )
-            query = st.text_input(
-                "Search skill, employer or evidence text",
-                key=f"hr_evidence_search_{selected}_{profile.id}",
-                placeholder="e.g. Java, PostgreSQL, Kubernetes",
-            ).strip().casefold()
-            status_filter = st.radio(
-                "Evidence verification", ["Verified", "Unverified", "All"],
-                horizontal=True,
-                key=f"hr_evidence_status_{selected}_{profile.id}",
-            )
-            matching = [
-                e for e in scoped_evidence
-                if (category == "All" or
-                    e.field_path.split(".")[0].replace("_", " ").title() == category)
-                and (status_filter == "All" or
-                     (e.verification_status == "VERIFIED") ==
-                     (status_filter == "Verified"))
-                and (not query or query in (
-                    e.source_excerpt + " " + evidence_record_label(e, payload)
-                ).casefold())
-            ]
-            show_headings = st.checkbox(
-                "Include CV section headings",
-                value=False,
-                key=f"hr_evidence_headings_{selected}_{profile.id}",
-                help="Show labels such as EXPERIENCE or EDUCATION. "
-                     "They are source text, but not useful qualification evidence.",
-            )
-            visible = [
-                e for e in matching
-                if show_headings or not is_section_heading(e.source_excerpt)
-            ]
-            groups = evidence_groups(visible, payload)
+            finding = findings[index]
+            citations = list(dict.fromkeys(
+                (
+                    quote.get("source_reference"),
+                    quote.get("page_number"),
+                    quote.get("source_excerpt"),
+                ) for quote in finding.get("evidence") or []
+            ))
             st.caption(
-                f"{len(groups)} unique quotations from {len(visible)} evidence "
-                "records. Select a row to view the full text below."
+                f"Requirement: {finding.get('criterion')} · "
+                f"{finding.get('weight', '?')}% of JD evidence coverage · "
+                f"{len(citations)} cited CV passage(s)"
             )
-            if not groups:
-                st.info("No evidence matches these filters.")
+            if not citations:
+                st.info(
+                    "No source quotation was cited for this JD requirement. "
+                    "This is not evidence that the candidate lacks the skill."
+                )
             else:
-                st.caption("Click a row to inspect its CV evidence. No long dropdowns.")
-                quote_rows = [
-                    {
-                        "CV quotation": " ".join(members[0].source_excerpt.split()),
-                        "Related qualification": (
-                            labels[0] if len(labels) == 1
-                            else f"{len(labels)} qualifications"
-                        ),
-                        "Page": members[0].page_number,
-                    }
-                    for members, labels in groups
-                ]
                 quote_table = st.dataframe(
-                    pd.DataFrame(quote_rows),
-                    hide_index=True,
-                    width="stretch",
-                    height=min(310, 38 * (len(quote_rows) + 1) + 6),
-                    selection_mode="single-row",
-                    on_select="rerun",
-                    key=f"hr_quote_table_{selected}_{profile.id}_{category}_{status_filter}_{query}_{show_headings}",
+                    pd.DataFrame([
+                        {
+                            "CV source quotation": excerpt,
+                            "Page": page,
+                        }
+                        for reference, page, excerpt in citations
+                    ]),
+                    hide_index=True, width="stretch",
+                    height=min(300, 38 * (len(citations) + 1) + 6),
+                    selection_mode="single-row", on_select="rerun",
+                    key=f"jd_quote_table_{selected}_{profile.id}_{finding['criterion_id']}",
                     column_config={
-                        "CV quotation": st.column_config.TextColumn(width="large"),
-                        "Related qualification": st.column_config.TextColumn(width="medium"),
+                        "CV source quotation": st.column_config.TextColumn(width="large"),
                         "Page": st.column_config.NumberColumn(width="small"),
                     },
                 )
                 chosen_rows = quote_table.selection.rows
-                selected_evidence = None
                 if not chosen_rows:
-                    st.info("Select a quotation in the table above to review it.")
+                    st.info("Click a quotation in the table to review it.")
                 else:
-                    members, linked_labels = groups[chosen_rows[0]]
-                    st.caption(f"Linked qualifications: {', '.join(linked_labels)}")
-                    if len(members) > 1:
-                        st.caption(
-                            f"One quotation is linked to {len(members)} extracted records. "
-                            "Choose the exact record below; approval applies only to that record."
-                        )
-                        record_rows = [
-                            {
-                                "Qualification": evidence_record_label(e, payload),
-                                "Record": e.field_path,
-                                "Evidence ID": e.id[:8],
-                            }
-                            for e in members
-                        ]
-                        record_table = st.dataframe(
-                            pd.DataFrame(record_rows),
-                            hide_index=True,
-                            width="stretch",
-                            height=min(220, 38 * (len(record_rows) + 1) + 6),
-                            selection_mode="single-row",
-                            on_select="rerun",
-                            key=f"hr_record_table_{selected}_{profile.id}_{chosen_rows[0]}",
-                        )
-                        record_selection = record_table.selection.rows
-                        selected_evidence = (
-                            members[record_selection[0]] if record_selection else None
-                        )
-                        if selected_evidence is None:
-                            st.info("Select the specific qualification in the second table.")
-                    else:
-                        selected_evidence = members[0]
-                if selected_evidence is not None:
-                    st.markdown("**Stored extraction quotation**")
-                    st.write(selected_evidence.source_excerpt)
-                    if selected_evidence.verification_status != "VERIFIED":
-                        st.error(
-                            "This text was not located in the original CV. "
-                            "Do not treat it as evidence. Reject this entry if it is incorrect; "
-                            "a new, source-backed extraction is required to approve a quotation."
-                        )
+                    reference, page, excerpt = citations[chosen_rows[0]]
+                    quote = {
+                        "source_reference": reference,
+                        "page_number": page,
+                        "source_excerpt": excerpt,
+                    }
+                    st.markdown("**Original CV quotation**")
+                    st.write(excerpt)
                     st.caption(
-                        f"Original verification: {selected_evidence.verification_status} · "
-                        f"Source: {selected_evidence.source_reference or 'unknown'}"
+                        f"JD requirement: {finding.get('criterion')} · "
+                        f"Page: {page or 'unknown'} · Source: {reference or 'unknown'}"
                     )
-                    history = ats.evidence_reviews.history(profile.id, selected_evidence.id)
-                    if history:
-                        last = history[-1]
-                        latest = last.corrected_value or {}
-                        st.info(
-                            f"Latest HR review: {latest.get('decision', 'Unknown')} · "
-                            f"{last.reviewer} · {last.note}"
+                    try:
+                        events = ats.jd_reviews.history(
+                            selected, finding["criterion_id"], quote
                         )
-                        if latest.get("corrected_excerpt"):
-                            st.write("HR-corrected quotation:", latest["corrected_excerpt"])
-                    with st.form(f"hr_evidence_review_{profile.id}_{selected_evidence.id}"):
-                        decision = st.radio(
-                            "HR assessment",
-                            (["APPROVE", "REJECT", "CORRECT"]
-                             if selected_evidence.verification_status == "VERIFIED"
-                             else ["REJECT"]),
-                            format_func=lambda v: v.title(),
-                            horizontal=True,
-                        )
-                        corrected = st.text_area(
-                            "Corrected quotation (only for Correct)",
-                            help="Must appear in the same original CV source block.",
-                            key=f"hr_corrected_quote_{selected_evidence.id}",
-                        )
-                        reviewer = st.text_input(
-                            "Reviewer *", key=f"hr_reviewer_{selected}"
-                        )
-                        note = st.text_area(
-                            "Reason / review note *",
-                            key=f"hr_review_note_{selected_evidence.id}",
-                        )
-                        saved = st.form_submit_button("Save HR evidence review", type="primary")
-                    if saved:
-                        try:
-                            ats.evidence_reviews.record(
-                                profile.id, selected_evidence.id, decision, reviewer, note,
-                                corrected_excerpt=corrected,
-                                expected_last_event_id=history[-1].id if history else None,
+                    except ATSError as exc:
+                        st.error(str(exc))
+                    else:
+                        if events:
+                            latest = events[-1]
+                            st.info(
+                                f"Latest HR assessment: "
+                                f"{(latest.corrected_value or {}).get('decision')} · "
+                                f"{latest.reviewer} · {latest.note}"
                             )
-                            st.success("HR evidence review saved to the audit history.")
-                            st.rerun()
-                        except ATSError as exc:
-                            st.error(str(exc))
-                    with st.expander(f"Evidence review history ({len(history)})"):
-                        for event in reversed(history):
-                            value = event.corrected_value or {}
-                            st.markdown(
-                                f"**{value.get('decision', 'Unknown')}** · "
-                                f"{event.reviewer} · {event.created_at}"
+                        with st.form(
+                            f"jd_review_{selected}_{finding['criterion_id']}_{chosen_rows[0]}"
+                        ):
+                            decision = st.radio(
+                                "HR assessment", ["APPROVE", "REJECT", "CORRECT"],
+                                format_func=str.title, horizontal=True,
                             )
-                            st.write(event.note)
-                            if value.get("corrected_excerpt"):
-                                st.write(value["corrected_excerpt"])
+                            corrected = st.text_area(
+                                "Corrected quotation (only for Correct)",
+                                help="The corrected text must occur in the same CV block.",
+                            )
+                            reviewer = st.text_input("Reviewer *")
+                            reason = st.text_area("Reason *")
+                            saved = st.form_submit_button(
+                                "Save JD evidence review", type="primary"
+                            )
+                        if saved:
+                            try:
+                                ats.jd_reviews.record(
+                                    selected, finding["criterion_id"], quote,
+                                    decision, reviewer, reason,
+                                    corrected_excerpt=corrected,
+                                    expected_last_event_id=(
+                                        events[-1].id if events else None
+                                    ),
+                                )
+                                st.success("JD-specific evidence review saved.")
+                                st.rerun()
+                            except ATSError as exc:
+                                st.error(str(exc))
+                        with st.expander(f"JD evidence review history ({len(events)})"):
+                            for event in reversed(events):
+                                st.write(
+                                    f"{event.created_at} · {event.reviewer} · "
+                                    f"{(event.corrected_value or {}).get('decision')}"
+                                )
+                                st.caption(event.note)
         with st.expander("Advanced: original structured profile (JSON)"):
             st.json(payload)
     else:
