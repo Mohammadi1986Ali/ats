@@ -559,7 +559,11 @@ PowerShell retry command is necessary.
 
 The sidebar **HR Candidate Review** page lets a human reviewer select a job and
 an uploaded CV, search records, download the original file and inspect the most
-recent stored extraction profile. It displays the current model-backed JD evidence
+recent stored extraction profile. The screen presents readable work experience,
+technical skills, education and other profile sections instead of raw JSON, with
+advanced JSON available only on demand. Each JD criterion is shown once, with
+its source quotations available in an expandable detail view. The CV overview
+uses compact columns to avoid unnecessary horizontal scrolling. It displays the current model-backed JD evidence
 score (or clearly labeled rule-based fallback), unresolved coverage, criteria,
 source excerpts and their provenance. Failed or missing model runs are shown
 as such, never disguised as successful scores.
