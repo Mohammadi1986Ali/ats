@@ -151,6 +151,26 @@ def grouped_evidence_label(grouped):
     return f"{topic} · {preview} · {page} · {state}"
 
 
+def requirement_evidence(finding, stored_evidence):
+    """Join persisted JD matching citations to exact original CV evidence IDs.
+
+    Never infer matches based only on a skill token or similar wording.
+    """
+    citations = finding.get("evidence") or []
+    matched = []
+    for item in stored_evidence:
+        if item.verification_status != "VERIFIED":
+            continue
+        if any(
+            quote.get("source_reference") == item.source_reference
+            and quote.get("source_excerpt") == item.source_excerpt
+            and quote.get("page_number") == item.page_number
+            for quote in citations
+        ):
+            matched.append(item)
+    return matched
+
+
 def candidate_review(ats):
     st.title("HR Candidate Review")
     st.caption(
@@ -346,9 +366,9 @@ def candidate_review(ats):
                 st.divider()
         st.subheader("HR evidence review")
         st.caption(
-            "Approve, reject or correct a source quotation. Every action is "
-            "recorded with a reviewer and reason. Existing AI evidence and "
-            "scores remain unchanged until the separate recalculation phase."
+            "Review evidence linked to a JD requirement. Every HR action is "
+            "recorded with its reason; original CV and AI results stay unchanged. "
+            "Recalculate the HR score separately below."
         )
         evidence_list = sorted(
             profile.evidence,
@@ -364,14 +384,68 @@ def candidate_review(ats):
                 "cannot be verified against the original CV. They cannot be "
                 "approved or used to increase HR scoring."
             )
-        if not evidence_list:
-            st.info("No extracted source evidence is available for HR review.")
+        outcome_for_jd = outcomes[selected]
+        if (
+            outcome_for_jd is not None
+            and outcome_for_jd.status == "COMPLETED"
+            and outcome_for_jd.breakdown
+        ):
+            requirement_findings = outcome_for_jd.breakdown
+        else:
+            persisted_matches = [
+                m for m in ats.job_matching.list_for_vacancy(job.id)
+                if m.document_id == selected
+                and m.profile_id == profile.id
+            ]
+            requirement_findings = (
+                persisted_matches[0].criteria_results if persisted_matches else []
+            )
+        scoped_evidence = evidence_list
+        chosen_requirement = None
+        if requirement_findings:
+            st.markdown("**Step 1 — Choose a JD requirement**")
+            requirement_options = list(range(len(requirement_findings)))
+            selection = st.selectbox(
+                "Job requirement",
+                requirement_options,
+                format_func=lambda idx: (
+                    f"{requirement_findings[idx].get('criterion') or "
+                    f"requirement_findings[idx].get('name') or 'Requirement'} "
+                    f"· {requirement_findings[idx].get('weight', '?')}% · "
+                    f"{requirement_findings[idx].get('status', 'UNKNOWN')}"
+                ),
+                key=f"hr_requirement_{selected}_{profile.id}",
+            )
+            chosen_requirement = requirement_findings[selection]
+            st.caption(
+                "Evidence below is linked to this specific JD requirement "
+                "by the saved scoring/matching result, not by keyword guessing."
+            )
+            scoped_evidence = requirement_evidence(chosen_requirement, evidence_list)
+            st.write(
+                f"**Linked verified CV evidence:** {len(scoped_evidence)} "
+                f"· **Weight:** {chosen_requirement.get('weight', '?')}%"
+            )
+            if not scoped_evidence:
+                st.warning(
+                    "No verified CV quotation is linked to this JD requirement. "
+                    "It cannot be approved as supported from this view. "
+                    "Check the Job requirements section below."
+                )
+        else:
+            st.warning(
+                "No persisted JD-to-CV matching exists. Run matching/scoring "
+                "before reviewing evidence by requirement."
+            )
+            scoped_evidence = []
+        if not scoped_evidence:
+            st.info("No linked source quotations to review for this requirement.")
         else:
             category = st.selectbox(
                 "Qualification category",
                 ["All", *sorted({
                     e.field_path.split(".")[0].replace("_", " ").title()
-                    for e in evidence_list
+                    for e in scoped_evidence
                 })],
                 key=f"hr_evidence_category_{selected}_{profile.id}",
             )
@@ -386,7 +460,7 @@ def candidate_review(ats):
                 key=f"hr_evidence_status_{selected}_{profile.id}",
             )
             matching = [
-                e for e in evidence_list
+                e for e in scoped_evidence
                 if (category == "All" or
                     e.field_path.split(".")[0].replace("_", " ").title() == category)
                 and (status_filter == "All" or
