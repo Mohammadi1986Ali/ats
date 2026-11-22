@@ -70,8 +70,8 @@ def criterion_details(breakdown):
 def candidate_review(ats):
     st.title("HR Candidate Review")
     st.caption(
-        "Phase 4.1 · Inspect stored CVs, source evidence and JD coverage. "
-        "This page does not approve, reject, rank or edit applicants."
+        "Phase 4.2 · Inspect CVs and record human evidence reviews. "
+        "Decisions about hiring are not automated; original CV and AI results stay intact."
     )
     vacancies = ats.vacancies.list()
     if not vacancies:
@@ -260,6 +260,84 @@ def candidate_review(ats):
                     f"{e.source_reference or 'Source reference unavailable'}"
                 )
                 st.divider()
+        st.subheader("HR evidence review")
+        st.caption(
+            "Approve, reject or correct a source quotation. Every action is "
+            "recorded with a reviewer and reason. Existing AI evidence and "
+            "scores remain unchanged until the separate recalculation phase."
+        )
+        evidence_list = sorted(
+            profile.evidence, key=lambda e: (e.field_path, e.source_reference or "", e.id)
+        )
+        if not evidence_list:
+            st.info("No extracted source evidence is available for HR review.")
+        else:
+            selected_evidence = st.selectbox(
+                "Select source quotation",
+                evidence_list,
+                format_func=lambda e: (
+                    f"{e.field_path.replace('_', ' ')} · "
+                    f"{e.source_excerpt[:90]} · page {e.page_number or '?'}"
+                ),
+                key=f"hr_evidence_choice_{selected}_{profile.id}",
+            )
+            st.markdown("**Original source quotation**")
+            st.write(selected_evidence.source_excerpt)
+            st.caption(
+                f"Original verification: {selected_evidence.verification_status} · "
+                f"Source: {selected_evidence.source_reference or 'unknown'}"
+            )
+            history = ats.evidence_reviews.history(profile.id, selected_evidence.id)
+            if history:
+                last = history[-1]
+                latest = last.corrected_value or {}
+                st.info(
+                    f"Latest HR review: {latest.get('decision', 'Unknown')} · "
+                    f"{last.reviewer} · {last.note}"
+                )
+                if latest.get("corrected_excerpt"):
+                    st.write("HR-corrected quotation:", latest["corrected_excerpt"])
+            with st.form(f"hr_evidence_review_{profile.id}_{selected_evidence.id}"):
+                decision = st.radio(
+                    "HR assessment",
+                    ["APPROVE", "REJECT", "CORRECT"],
+                    format_func=lambda v: v.title(),
+                    horizontal=True,
+                )
+                corrected = st.text_area(
+                    "Corrected quotation (only for Correct)",
+                    help="Must appear in the same original CV source block.",
+                    key=f"hr_corrected_quote_{selected_evidence.id}",
+                )
+                reviewer = st.text_input(
+                    "Reviewer *", key=f"hr_reviewer_{selected}"
+                )
+                note = st.text_area(
+                    "Reason / review note *",
+                    key=f"hr_review_note_{selected_evidence.id}",
+                )
+                saved = st.form_submit_button("Save HR evidence review", type="primary")
+            if saved:
+                try:
+                    ats.evidence_reviews.record(
+                        profile.id, selected_evidence.id, decision, reviewer, note,
+                        corrected_excerpt=corrected,
+                        expected_last_event_id=history[-1].id if history else None,
+                    )
+                    st.success("HR evidence review saved to the audit history.")
+                    st.rerun()
+                except ATSError as exc:
+                    st.error(str(exc))
+            with st.expander(f"Evidence review history ({len(history)})"):
+                for event in reversed(history):
+                    value = event.corrected_value or {}
+                    st.markdown(
+                        f"**{value.get('decision', 'Unknown')}** · "
+                        f"{event.reviewer} · {event.created_at}"
+                    )
+                    st.write(event.note)
+                    if value.get("corrected_excerpt"):
+                        st.write(value["corrected_excerpt"])
         with st.expander("Advanced: original structured profile (JSON)"):
             st.json(payload)
     else:
@@ -324,6 +402,6 @@ def candidate_review(ats):
     else:
         st.info("No current JD evidence matching is stored for this CV.")
     st.info(
-        "Read-only review: correcting evidence, recalculating after HR corrections, "
-        "recording HR decisions and review history belong to phases 4.2–4.5."
+        "HR source-evidence reviews are persisted separately from AI results. "
+        "Recalculating the JD coverage score and hiring decisions are future phases."
     )
