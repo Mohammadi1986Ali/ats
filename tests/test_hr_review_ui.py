@@ -1,7 +1,10 @@
 """Phase 4.1 HR review: read-only projections and existing ATS integration."""
 from types import SimpleNamespace
 
-from job_hire_ai.hr_review_ui import (criterion_details, evidence_choice_label, review_summary)
+from job_hire_ai.hr_review_ui import (
+    criterion_details, evidence_choice_label, evidence_groups,
+    evidence_record_label, grouped_evidence_label, review_summary,
+)
 from tests.test_job_matching import approve_criteria, make_data
 
 
@@ -97,3 +100,54 @@ def test_verified_evidence_label_is_human_readable():
     assert "Verified CV quote" in label
     assert "Technical Skills" in label
     assert "page 2" in label
+
+
+def test_duplicate_quotations_are_grouped_but_underlying_evidence_is_preserved():
+    first = SimpleNamespace(
+        id="e1", field_path="technical_skills.0",
+        source_excerpt="Java SE/EE technologies", source_reference="pdf:p2:block8",
+        page_number=2, verification_status="VERIFIED",
+    )
+    second = SimpleNamespace(
+        id="e2", field_path="technical_skills.1",
+        source_excerpt=" Java SE/EE   technologies ",
+        source_reference="pdf:p2:block8", page_number=2,
+        verification_status="VERIFIED",
+    )
+    separate = SimpleNamespace(
+        id="e3", field_path="technical_skills.2",
+        source_excerpt="Java SE/EE technologies",
+        source_reference="pdf:p3:block7", page_number=3,
+        verification_status="VERIFIED",
+    )
+    payload = {"technical_skills": [
+        {"name": "Java"}, {"name": "Spring Boot"}, {"name": "JVM"},
+    ]}
+    groups = evidence_groups([first, second, separate], payload)
+    assert len(groups) == 2
+    duplicates = next(group for group in groups if len(group[0]) == 2)
+    assert {e.id for e in duplicates[0]} == {"e1", "e2"}
+    assert "Java" in duplicates[1][0]
+    assert "Spring Boot" in duplicates[1][1]
+    assert "linked qualifications" in grouped_evidence_label(duplicates)
+
+
+def test_identical_unverified_quote_does_not_merge_with_verified_quote():
+    verified = SimpleNamespace(
+        id="e1", field_path="education.0", source_excerpt="MSc",
+        source_reference="pdf:p1:block2", page_number=1,
+        verification_status="VERIFIED",
+    )
+    unverified = SimpleNamespace(
+        id="e2", field_path="education.1", source_excerpt="MSc",
+        source_reference="pdf:p1:block2", page_number=1,
+        verification_status="UNVERIFIED",
+    )
+    groups = evidence_groups([verified, unverified], {
+        "education": [{"degree": "MSc"}, {"degree": "MSc"}],
+    })
+    assert len(groups) == 2
+    assert "Unverified" in grouped_evidence_label(groups[1])
+    assert evidence_record_label(verified, {"education": [{"degree": "MSc"}]}) == (
+        "Education: MSc"
+    )
