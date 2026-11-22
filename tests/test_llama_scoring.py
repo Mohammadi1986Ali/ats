@@ -494,3 +494,65 @@ def test_literal_skill_contradiction_requires_direct_verified_skill_quote():
     assert not _literal_skill_evidence(
         other, finding, {"e1": SimpleNamespace(source_excerpt="Java")},
     )
+
+
+
+def test_unknown_criterion_ids_fall_back_to_isolated_scoring(ats, vacancy, pdf):
+    """A tiny model may invent an ID; it must not fail the entire CV."""
+    doc_id, _ = make_data(ats, vacancy, pdf)
+    config_id = approve_criteria(ats, vacancy, names=("Java",))
+    with ats.db.transaction() as session:
+        criterion_id = session.scalar(select(JobCriterion.id).where(
+            JobCriterion.configuration_id == config_id
+        ))
+    model = provider()
+    model.generate_structured.side_effect = [
+        SimpleNamespace(extraction=LlamaAssessment(findings=[
+            LlamaCriterionFinding(
+                criterion_id=987654, status="EVIDENCED",
+                evidence_ids=["e1"], reason="Java in a cited quote.",
+            ),
+        ])),
+        SimpleNamespace(extraction=LlamaCriterionFinding(
+            criterion_id=123456, status="EVIDENCED",
+            evidence_ids=["e1"], reason="Java in a cited quote.",
+        )),
+    ]
+    result = LlamaScoringService(ats.db, model).evaluate(doc_id)
+    assert result.status == "COMPLETED"
+    assert result.score == 100
+    assert result.breakdown[0]["criterion_id"] == criterion_id
+    assert model.generate_structured.call_count == 2
+
+
+def test_unknown_isolated_id_cannot_bypass_evidence_validation(ats, vacancy, pdf):
+    doc_id, _ = make_data(ats, vacancy, pdf)
+    approve_criteria(ats, vacancy, names=("Java",))
+    model = provider()
+    model.generate_structured.side_effect = [
+        SimpleNamespace(extraction=LlamaAssessment(findings=[])),
+        SimpleNamespace(extraction=LlamaCriterionFinding(
+            criterion_id=777, status="EVIDENCED",
+            evidence_ids=["fake-source"], reason="Java.",
+        )),
+    ]
+    with pytest.raises(ATSError, match="Llama scoring failed"):
+        LlamaScoringService(ats.db, model).evaluate(doc_id)
+    assert LlamaScoringService(ats.db, model).current(doc_id).status == "FAILED"
+
+
+def test_unknown_criterion_id_failure_is_requeued_once(ats, vacancy, pdf):
+    doc_id, profile_id = make_data(ats, vacancy, pdf)
+    config_id = approve_criteria(ats, vacancy, names=("Java",))
+    with ats.db.transaction() as session:
+        session.add(LlamaScoreResult(
+            document_id=doc_id, profile_id=profile_id,
+            configuration_id=config_id, model_name="llama3.2:1b",
+            status="FAILED", score=None, review_weight=None,
+            breakdown=None,
+            error_summary="Llama returned unknown JD criterion IDs.",
+        ))
+    scorer = LlamaScoringService(ats.db, provider())
+    assert scorer.recover_outdated_failures() == 1
+    assert scorer.current(doc_id) is None
+    assert scorer.recover_outdated_failures() == 0
