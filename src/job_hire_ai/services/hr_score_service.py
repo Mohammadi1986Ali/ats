@@ -116,8 +116,9 @@ def reviewed_breakdown(criteria, original, evidence, decisions):
 
 
 class HRScoreService:
-    def __init__(self, db):
+    def __init__(self, db, model_name=None):
         self.db = db
+        self.model_name = model_name
 
     def _context(self, session, document_id):
         document = session.get(CandidateDocument, document_id)
@@ -134,12 +135,15 @@ class HRScoreService:
         ).order_by(CandidateProfile.id.desc()).limit(1))
         if config is None or profile is None:
             raise ATSError("Current approved JD criteria and CV profile are required.")
-        score = session.scalar(select(LlamaScoreResult).where(
+        query = select(LlamaScoreResult).where(
             LlamaScoreResult.document_id == document_id,
             LlamaScoreResult.configuration_id == config.id,
             LlamaScoreResult.profile_id == profile.id,
             LlamaScoreResult.status == "COMPLETED",
-        ).order_by(LlamaScoreResult.id.desc()).limit(1))
+        )
+        if self.model_name:
+            query = query.where(LlamaScoreResult.model_name == self.model_name)
+        score = session.scalar(query.order_by(LlamaScoreResult.id.desc()).limit(1))
         if score is None or not score.breakdown:
             raise ATSError("Completed, source-backed Llama scoring is required first.")
         return config, profile, score
