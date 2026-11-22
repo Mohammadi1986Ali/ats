@@ -165,3 +165,26 @@ def test_hr_evidence_picker_uses_selectable_tables_not_long_dropdowns():
     assert '"Select a unique source quotation"' not in picker
     assert '"Qualification to review"' not in picker
     assert 'selected_evidence = None' in picker
+
+
+def test_cv_section_heading_is_not_used_as_primary_evidence():
+    from job_hire_ai.hr_review_ui import is_section_heading
+
+    assert is_section_heading("EXPERIENCE")
+    assert is_section_heading("Education:")
+    assert not is_section_heading("Senior Software Engineer")
+    assert not is_section_heading("Experience with Java and PostgreSQL")
+
+
+def test_hr_evidence_table_uses_three_readable_columns():
+    from inspect import getsource
+
+    from job_hire_ai.hr_review_ui import candidate_review
+
+    code = getsource(candidate_review)
+    table = code.split("quote_rows = [", 1)[1].split("chosen_rows =", 1)[0]
+    assert '"CV quotation"' in table
+    assert '"Related qualification"' in table
+    assert '"Page"' in table
+    assert '"Linked records"' not in table
+    assert '"Verification"' not in table
