@@ -339,3 +339,83 @@ def test_review_weight_is_not_classified_as_weak():
     assert evidence_classification(0, 0, 75, 45) == "Weak"
     assert evidence_classification(None, 100, 75, 45) == "Not scored"
     assert evidence_classification(33, 10, 75, 45) == "Weak"
+
+
+
+def test_conflicting_llama_reason_gets_focused_recheck(ats, vacancy, pdf):
+    """A bare EVIDENCED reason cannot award points without structured confirmation."""
+    doc_id, _ = make_data(ats, vacancy, pdf)
+    config_id = approve_criteria(ats, vacancy, names=("Java",))
+    with ats.db.transaction() as session:
+        criterion_id = session.scalar(select(JobCriterion.id).where(
+            JobCriterion.configuration_id == config_id
+        ))
+    model = provider()
+    model.generate_structured.side_effect = [
+        SimpleNamespace(extraction=LlamaAssessment(findings=[
+            LlamaCriterionFinding(
+                criterion_id=criterion_id, status="REVIEW_REQUIRED",
+                evidence_ids=["e1"], reason="EVIDENCED",
+            ),
+        ])),
+        SimpleNamespace(extraction=LlamaCriterionFinding(
+            criterion_id=criterion_id, status="EVIDENCED",
+            evidence_ids=["e1"], reason="Java appears in a verified CV excerpt.",
+        )),
+    ]
+    result = LlamaScoringService(ats.db, model).evaluate(doc_id)
+    assert result.score == 100
+    assert result.review_weight == 0
+    assert result.breakdown[0]["status"] == "EVIDENCED"
+    assert model.generate_structured.call_count == 2
+
+
+def test_conflicting_reason_without_confirmation_keeps_review(ats, vacancy, pdf):
+    doc_id, _ = make_data(ats, vacancy, pdf)
+    config_id = approve_criteria(ats, vacancy, names=("Java",))
+    with ats.db.transaction() as session:
+        criterion_id = session.scalar(select(JobCriterion.id).where(
+            JobCriterion.configuration_id == config_id
+        ))
+    model = provider()
+    model.generate_structured.side_effect = [
+        SimpleNamespace(extraction=LlamaAssessment(findings=[
+            LlamaCriterionFinding(
+                criterion_id=criterion_id, status="REVIEW_REQUIRED",
+                evidence_ids=["e1"], reason="EVIDENCED",
+            ),
+        ])),
+        ProviderError("Local Ollama not available"),
+    ]
+    result = LlamaScoringService(ats.db, model).evaluate(doc_id)
+    assert result.status == "COMPLETED"
+    assert result.score == 0
+    assert result.review_weight == 100
+    assert "Conflicting model" in result.breakdown[0]["reason"]
+
+
+def test_force_rescore_reuses_snapshot_and_rechecks_model(ats, vacancy, pdf):
+    doc_id, _ = make_data(ats, vacancy, pdf)
+    config_id = approve_criteria(ats, vacancy, names=("Java",))
+    with ats.db.transaction() as session:
+        criterion_id = session.scalar(select(JobCriterion.id).where(
+            JobCriterion.configuration_id == config_id
+        ))
+    model = provider([{
+        "criterion_id": criterion_id, "status": "REVIEW_REQUIRED",
+        "evidence_ids": [], "reason": "Insufficient evidence.",
+    }])
+    scorer = LlamaScoringService(ats.db, model)
+    first = scorer.evaluate(doc_id)
+    assert first.score == 0
+    model.generate_structured.return_value = SimpleNamespace(
+        extraction=LlamaAssessment.model_validate({"findings": [{
+            "criterion_id": criterion_id, "status": "EVIDENCED",
+            "evidence_ids": ["e1"], "reason": "Directly documented Java.",
+        }]}),
+    )
+    second = scorer.evaluate(doc_id, force=True)
+    assert second.id == first.id
+    assert second.status == "COMPLETED"
+    assert second.score == 100
+    assert second.review_weight == 0
