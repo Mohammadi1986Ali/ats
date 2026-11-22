@@ -266,3 +266,49 @@ def test_jd_review_does_not_promote_unrelated_language_field():
         {quote_key(criterion.id, quote): jd_event},
     )
     assert with_jd_review["score"] == 100
+
+
+def test_jd_literal_criterion_cannot_count_irrelevant_source_text():
+    criterion = SimpleNamespace(
+        id=7, name="Docker", weight=100,
+        description="Explicit technology mentioned in the job description.",
+    )
+    quote = {
+        "source_reference": "pdf:p3:block2", "page_number": 3,
+        "source_excerpt": "English language proficiency",
+    }
+    assessed = [{
+        "criterion_id": 7, "status": "EVIDENCED", "evidence": [quote],
+    }]
+    from job_hire_ai.services.jd_review_service import quote_key
+
+    approved = SimpleNamespace(corrected_value={"decision": "APPROVE"})
+    result = reviewed_breakdown(
+        [criterion], assessed, [], {},
+        {quote_key(7, quote): approved},
+    )
+    assert result["score"] == 0
+    assert result["review_weight"] == 100
+
+
+def test_jd_literal_correction_without_technology_reduces_coverage():
+    criterion = SimpleNamespace(
+        id=7, name="Docker", weight=100,
+        description="Explicit technology mentioned in the job description.",
+    )
+    quote = {
+        "source_reference": "pdf:p3:block2", "page_number": 3,
+        "source_excerpt": "Cloud: Docker, Kubernetes, Azure",
+    }
+    assessed = [{"criterion_id": 7, "status": "EVIDENCED", "evidence": [quote]}]
+    from job_hire_ai.services.jd_review_service import quote_key
+
+    corrected = SimpleNamespace(
+        corrected_value={"decision": "CORRECT", "corrected_excerpt": "Azure"}
+    )
+    result = reviewed_breakdown(
+        [criterion], assessed, [], {},
+        {quote_key(7, quote): corrected},
+    )
+    assert result["score"] == 0
+    assert result["review_weight"] == 100
