@@ -107,8 +107,9 @@ def evidence_groups(evidence, profile_data):
     groups = {}
     for item in evidence:
         normalized = " ".join((item.source_excerpt or "").split()).casefold()
-        key = (normalized, item.source_reference, item.page_number,
-               item.verification_status)
+        # Same quotation can be repeated for multiple extracted skills and
+        # PDF blocks on one page. Preserve each distinct evidence ID in the group.
+        key = (normalized, item.page_number, item.verification_status)
         groups.setdefault(key, []).append(item)
     result = []
     for group in groups.values():
