@@ -419,3 +419,40 @@ def test_force_rescore_reuses_snapshot_and_rechecks_model(ats, vacancy, pdf):
     assert second.status == "COMPLETED"
     assert second.score == 100
     assert second.review_weight == 0
+
+
+def test_existing_contradictory_score_is_automatically_requeued(
+    ats, vacancy, pdf
+):
+    doc_id, _ = make_data(ats, vacancy, pdf)
+    config_id = approve_criteria(ats, vacancy, names=("Java",))
+    with ats.db.transaction() as session:
+        criterion_id = session.scalar(select(JobCriterion.id).where(
+            JobCriterion.configuration_id == config_id
+        ))
+        session.scalar(select(DocumentPipelineStage).where(
+            DocumentPipelineStage.document_id == doc_id,
+            DocumentPipelineStage.stage == "SCORING",
+        )).status = "COMPLETED"
+    model = provider([{
+        "criterion_id": criterion_id,
+        "status": "REVIEW_REQUIRED",
+        "evidence_ids": ["e1"],
+        "reason": "EVIDENCED",
+    }])
+    scorer = LlamaScoringService(ats.db, model)
+    stale = scorer.evaluate(doc_id)
+    assert stale.score == 0
+    assert scorer.pending_document() == doc_id
+    model.generate_structured.side_effect = None
+    model.generate_structured.return_value = SimpleNamespace(
+        extraction=LlamaAssessment.model_validate({"findings": [{
+            "criterion_id": criterion_id, "status": "EVIDENCED",
+            "evidence_ids": ["e1"],
+            "reason": "Directly supported Java experience.",
+        }]}),
+    )
+    current = scorer.evaluate(doc_id)
+    assert current.id == stale.id
+    assert current.score == 100
+    assert scorer.pending_document() is None
