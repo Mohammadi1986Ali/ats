@@ -422,6 +422,7 @@ def candidate_review(ats):
                     },
                 )
                 chosen_rows = quote_table.selection.rows
+                selected_evidence = None
                 if not chosen_rows:
                     st.info("Select a quotation in the table above to review it.")
                 else:
