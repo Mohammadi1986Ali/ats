@@ -146,6 +146,26 @@ class HRScoreService:
                 ProfileReviewEvent.field_path == SCORE_PREFIX + str(config.id),
             ).order_by(ProfileReviewEvent.id.desc())))
 
+    def is_current(self, document_id, snapshot):
+        """Old HR-score snapshots are stale after new source reviews or AI rescoring."""
+        with self.db.transaction() as session:
+            config, profile, score = self._context(session, document_id)
+            if snapshot.profile_id != profile.id:
+                return False
+            latest = {}
+            for event in session.scalars(select(ProfileReviewEvent).where(
+                ProfileReviewEvent.profile_id == profile.id,
+                ProfileReviewEvent.field_path.like(REVIEW_PREFIX + "%"),
+            ).order_by(ProfileReviewEvent.id)):
+                latest[event.field_path[len(REVIEW_PREFIX):]] = event.id
+            data = snapshot.corrected_value or {}
+            return (
+                data.get("configuration_id") == config.id
+                and data.get("ai_score_id") == score.id
+                and data.get("ai_score_completed_at") == str(score.completed_at)
+                and data.get("source_event_ids") == sorted(latest.values())
+            )
+
     def calculate(self, document_id, reviewer, note):
         if not 1 <= len(reviewer.strip()) <= 200 or not 1 <= len(note.strip()) <= 2000:
             raise ATSError("HR score requires a reviewer and a reason (up to 2000 characters).")
