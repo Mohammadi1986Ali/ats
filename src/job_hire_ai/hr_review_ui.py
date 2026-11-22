@@ -425,6 +425,13 @@ def candidate_review(ats):
                 f"Recalculated by {most_recent.reviewer} · "
                 f"{most_recent.created_at} · Audit snapshot {most_recent.id}"
             )
+            if not ats.hr_scores.is_current(selected, most_recent):
+                st.warning(
+                    "This HR score is out of date. New evidence reviews or "
+                    "AI rescoring happened afterward. Recalculate before use."
+                )
+            else:
+                st.caption("Current for the latest saved HR evidence reviews.")
             if result.get("breakdown"):
                 st.dataframe(
                     pd.DataFrame(result["breakdown"]),
