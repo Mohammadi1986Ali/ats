@@ -70,7 +70,7 @@ def criterion_details(breakdown):
 def candidate_review(ats):
     st.title("HR Candidate Review")
     st.caption(
-        "Phase 4.2 · Inspect CVs and record human evidence reviews. "
+        "Phase 4.3 · Inspect, review and recalculate documented CV evidence. "
         "Decisions about hiring are not automated; original CV and AI results stay intact."
     )
     vacancies = ats.vacancies.list()
@@ -401,7 +401,73 @@ def candidate_review(ats):
             st.json(findings)
     else:
         st.info("No current JD evidence matching is stored for this CV.")
-    st.info(
-        "HR source-evidence reviews are persisted separately from AI results. "
-        "Recalculating the JD coverage score and hiring decisions are future phases."
+    st.subheader("HR-reviewed evidence score")
+    st.caption(
+        "Recalculate JD evidence coverage using saved HR source reviews. "
+        "This does not change the original AI score, hire/reject anyone, "
+        "or infer qualifications beyond the cited original CV evidence."
+    )
+    score_history = []
+    if outcome is not None and outcome.status == "COMPLETED":
+        try:
+            score_history = ats.hr_scores.history(selected)
+        except ATSError as exc:
+            st.warning(str(exc))
+        if score_history:
+            most_recent = score_history[0]
+            result = most_recent.corrected_value or {}
+            before = most_recent.original_value or {}
+            left, right, pending = st.columns(3)
+            left.metric("Original AI score", f"{before.get('score', 0)}/100")
+            right.metric("HR-reviewed score", f"{result.get('score', 0)}/100")
+            pending.metric("Still needs review", f"{result.get('review_weight', 0)}%")
+            st.caption(
+                f"Recalculated by {most_recent.reviewer} · "
+                f"{most_recent.created_at} · Audit snapshot {most_recent.id}"
+            )
+            if result.get("breakdown"):
+                st.dataframe(
+                    pd.DataFrame(result["breakdown"]),
+                    hide_index=True, width="stretch",
+                    column_config={
+                        "criterion": st.column_config.TextColumn("JD requirement"),
+                        "AI status": st.column_config.TextColumn(width="small"),
+                        "HR status": st.column_config.TextColumn(width="small"),
+                        "weight": st.column_config.NumberColumn("Weight (%)", width="small"),
+                    },
+                )
+            with st.expander(f"Previous HR score calculations ({len(score_history)})"):
+                for snapshot in score_history:
+                    value = snapshot.corrected_value or {}
+                    st.write(
+                        f"{snapshot.created_at} · {snapshot.reviewer} · "
+                        f"Score {value.get('score', '?')}/100 · "
+                        f"Review {value.get('review_weight', '?')}%"
+                    )
+                    st.caption(snapshot.note)
+        else:
+            st.info("No HR-reviewed score has been recorded for this CV.")
+        with st.form(f"hr_recalculate_{selected}"):
+            reviewer = st.text_input("Reviewer name *", key=f"hr_score_reviewer_{selected}")
+            reason = st.text_area(
+                "Reason for recalculation *", key=f"hr_score_note_{selected}"
+            )
+            submitted = st.form_submit_button(
+                "Recalculate using HR evidence reviews", type="primary"
+            )
+        if submitted:
+            try:
+                ats.hr_scores.calculate(selected, reviewer, reason)
+                st.success("HR-reviewed score calculation saved.")
+                st.rerun()
+            except ATSError as exc:
+                st.error(str(exc))
+    else:
+        st.info(
+            "A completed current Llama evidence assessment is required "
+            "before HR score recalculation."
+        )
+    st.caption(
+        "Original model scores remain unchanged. HR-reviewed evidence scores "
+        "are separate auditable snapshots. Human hiring decisions are Phase 4.4."
     )
