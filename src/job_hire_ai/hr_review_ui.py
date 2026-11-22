@@ -409,10 +409,13 @@ def candidate_review(ats):
                 "Job requirement",
                 requirement_options,
                 format_func=lambda idx: (
-                    f"{requirement_findings[idx].get('criterion') or "
-                    f"requirement_findings[idx].get('name') or 'Requirement'} "
-                    f"· {requirement_findings[idx].get('weight', '?')}% · "
-                    f"{requirement_findings[idx].get('status', 'UNKNOWN')}"
+                    str(
+                        requirement_findings[idx].get("criterion")
+                        or requirement_findings[idx].get("name")
+                        or "Requirement"
+                    )
+                    + f" · {requirement_findings[idx].get('weight', '?')}% "
+                    + f"· {requirement_findings[idx].get('status', 'UNKNOWN')}"
                 ),
                 key=f"hr_requirement_{selected}_{profile.id}",
             )
