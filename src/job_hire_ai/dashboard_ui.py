@@ -436,6 +436,18 @@ def monitor_live(ats):
                 )
                 with st.expander("Source-backed Llama reasoning"):
                     st.json(outcome.breakdown)
+                if st.button(
+                    "Re-evaluate Llama evidence score",
+                    key=f"rescore_llama_{selected_id}",
+                    help="Rechecks the current JD against saved CV evidence. "
+                         "Replaces the prior Llama score; does not delete CVs or jobs.",
+                ):
+                    try:
+                        with st.spinner("Rechecking verified evidence with local Llama..."):
+                            ats.llama_scoring.evaluate(selected_id, force=True)
+                        st.rerun()
+                    except ATSError as exc:
+                        st.error(str(exc))
 
         # Similarity is JD-to-CV text retrieval, not evidence of a qualification
         # or an automated hiring/ranking score. No LLM calls in this view.
