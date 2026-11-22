@@ -389,98 +389,98 @@ def candidate_review(ats):
             )
             if not groups:
                 st.info("No evidence matches these filters.")
-                st.stop()
-            chosen_group = st.selectbox(
-                "Select a unique source quotation",
-                range(len(groups)),
-                format_func=lambda i: grouped_evidence_label(groups[i]),
-                key=f"hr_evidence_group_{selected}_{profile.id}_{category}_{status_filter}_{query}",
-            )
-            members, linked_labels = groups[chosen_group]
-            st.caption(
-                f"Linked qualifications: {', '.join(linked_labels)}"
-            )
-            if len(members) > 1:
-                st.info(
-                    f"This quotation is cited by {len(members)} extracted records. "
-                    "Select which qualification to review; other records stay unchanged."
-                )
-                selected_evidence = st.selectbox(
-                    "Qualification to review",
-                    members,
-                    format_func=lambda e: (
-                        f"{evidence_record_label(e, payload)} "
-                        f"(record {e.field_path.rsplit('.', 1)[-1]})"
-                    ),
-                    key=f"hr_evidence_record_{selected}_{profile.id}_{chosen_group}",
-                )
             else:
-                selected_evidence = members[0]
-            st.markdown("**Stored extraction quotation**")
-            st.write(selected_evidence.source_excerpt)
-            if selected_evidence.verification_status != "VERIFIED":
-                st.error(
-                    "This text was not located in the original CV. "
-                    "Do not treat it as evidence. Reject this entry if it is incorrect; "
-                    "a new, source-backed extraction is required to approve a quotation."
+                chosen_group = st.selectbox(
+                    "Select a unique source quotation",
+                    range(len(groups)),
+                    format_func=lambda i: grouped_evidence_label(groups[i]),
+                    key=f"hr_evidence_group_{selected}_{profile.id}_{category}_{status_filter}_{query}",
                 )
-            st.caption(
-                f"Original verification: {selected_evidence.verification_status} · "
-                f"Source: {selected_evidence.source_reference or 'unknown'}"
-            )
-            history = ats.evidence_reviews.history(profile.id, selected_evidence.id)
-            if history:
-                last = history[-1]
-                latest = last.corrected_value or {}
-                st.info(
-                    f"Latest HR review: {latest.get('decision', 'Unknown')} · "
-                    f"{last.reviewer} · {last.note}"
+                members, linked_labels = groups[chosen_group]
+                st.caption(
+                    f"Linked qualifications: {', '.join(linked_labels)}"
                 )
-                if latest.get("corrected_excerpt"):
-                    st.write("HR-corrected quotation:", latest["corrected_excerpt"])
-            with st.form(f"hr_evidence_review_{profile.id}_{selected_evidence.id}"):
-                decision = st.radio(
-                    "HR assessment",
-                    (["APPROVE", "REJECT", "CORRECT"]
-                     if selected_evidence.verification_status == "VERIFIED"
-                     else ["REJECT"]),
-                    format_func=lambda v: v.title(),
-                    horizontal=True,
-                )
-                corrected = st.text_area(
-                    "Corrected quotation (only for Correct)",
-                    help="Must appear in the same original CV source block.",
-                    key=f"hr_corrected_quote_{selected_evidence.id}",
-                )
-                reviewer = st.text_input(
-                    "Reviewer *", key=f"hr_reviewer_{selected}"
-                )
-                note = st.text_area(
-                    "Reason / review note *",
-                    key=f"hr_review_note_{selected_evidence.id}",
-                )
-                saved = st.form_submit_button("Save HR evidence review", type="primary")
-            if saved:
-                try:
-                    ats.evidence_reviews.record(
-                        profile.id, selected_evidence.id, decision, reviewer, note,
-                        corrected_excerpt=corrected,
-                        expected_last_event_id=history[-1].id if history else None,
+                if len(members) > 1:
+                    st.info(
+                        f"This quotation is cited by {len(members)} extracted records. "
+                        "Select which qualification to review; other records stay unchanged."
                     )
-                    st.success("HR evidence review saved to the audit history.")
-                    st.rerun()
-                except ATSError as exc:
-                    st.error(str(exc))
-            with st.expander(f"Evidence review history ({len(history)})"):
-                for event in reversed(history):
-                    value = event.corrected_value or {}
-                    st.markdown(
-                        f"**{value.get('decision', 'Unknown')}** · "
-                        f"{event.reviewer} · {event.created_at}"
+                    selected_evidence = st.selectbox(
+                        "Qualification to review",
+                        members,
+                        format_func=lambda e: (
+                            f"{evidence_record_label(e, payload)} "
+                            f"(record {e.field_path.rsplit('.', 1)[-1]})"
+                        ),
+                        key=f"hr_evidence_record_{selected}_{profile.id}_{chosen_group}",
                     )
-                    st.write(event.note)
-                    if value.get("corrected_excerpt"):
-                        st.write(value["corrected_excerpt"])
+                else:
+                    selected_evidence = members[0]
+                st.markdown("**Stored extraction quotation**")
+                st.write(selected_evidence.source_excerpt)
+                if selected_evidence.verification_status != "VERIFIED":
+                    st.error(
+                        "This text was not located in the original CV. "
+                        "Do not treat it as evidence. Reject this entry if it is incorrect; "
+                        "a new, source-backed extraction is required to approve a quotation."
+                    )
+                st.caption(
+                    f"Original verification: {selected_evidence.verification_status} · "
+                    f"Source: {selected_evidence.source_reference or 'unknown'}"
+                )
+                history = ats.evidence_reviews.history(profile.id, selected_evidence.id)
+                if history:
+                    last = history[-1]
+                    latest = last.corrected_value or {}
+                    st.info(
+                        f"Latest HR review: {latest.get('decision', 'Unknown')} · "
+                        f"{last.reviewer} · {last.note}"
+                    )
+                    if latest.get("corrected_excerpt"):
+                        st.write("HR-corrected quotation:", latest["corrected_excerpt"])
+                with st.form(f"hr_evidence_review_{profile.id}_{selected_evidence.id}"):
+                    decision = st.radio(
+                        "HR assessment",
+                        (["APPROVE", "REJECT", "CORRECT"]
+                         if selected_evidence.verification_status == "VERIFIED"
+                         else ["REJECT"]),
+                        format_func=lambda v: v.title(),
+                        horizontal=True,
+                    )
+                    corrected = st.text_area(
+                        "Corrected quotation (only for Correct)",
+                        help="Must appear in the same original CV source block.",
+                        key=f"hr_corrected_quote_{selected_evidence.id}",
+                    )
+                    reviewer = st.text_input(
+                        "Reviewer *", key=f"hr_reviewer_{selected}"
+                    )
+                    note = st.text_area(
+                        "Reason / review note *",
+                        key=f"hr_review_note_{selected_evidence.id}",
+                    )
+                    saved = st.form_submit_button("Save HR evidence review", type="primary")
+                if saved:
+                    try:
+                        ats.evidence_reviews.record(
+                            profile.id, selected_evidence.id, decision, reviewer, note,
+                            corrected_excerpt=corrected,
+                            expected_last_event_id=history[-1].id if history else None,
+                        )
+                        st.success("HR evidence review saved to the audit history.")
+                        st.rerun()
+                    except ATSError as exc:
+                        st.error(str(exc))
+                with st.expander(f"Evidence review history ({len(history)})"):
+                    for event in reversed(history):
+                        value = event.corrected_value or {}
+                        st.markdown(
+                            f"**{value.get('decision', 'Unknown')}** · "
+                            f"{event.reviewer} · {event.created_at}"
+                        )
+                        st.write(event.note)
+                        if value.get("corrected_excerpt"):
+                            st.write(value["corrected_excerpt"])
         with st.expander("Advanced: original structured profile (JSON)"):
             st.json(payload)
     else:
