@@ -67,6 +67,22 @@ def criterion_details(breakdown):
     return results
 
 
+def evidence_choice_label(evidence):
+    """Use human-friendly labels and disclose uncertain or missing provenance."""
+    section = evidence.field_path.split(".")[0].replace("_", " ").title()
+    location = (
+        f"page {evidence.page_number}" if evidence.page_number
+        else "page unknown"
+    )
+    excerpt = " ".join((evidence.source_excerpt or "").split())
+    preview = excerpt[:90] + ("…" if len(excerpt) > 90 else "")
+    status = (
+        "Verified CV quote" if evidence.verification_status == "VERIFIED"
+        else "Unverified — do not approve"
+    )
+    return f"{status} · {section} · {preview} · {location}"
+
+
 def candidate_review(ats):
     st.title("HR Candidate Review")
     st.caption(
@@ -267,22 +283,40 @@ def candidate_review(ats):
             "scores remain unchanged until the separate recalculation phase."
         )
         evidence_list = sorted(
-            profile.evidence, key=lambda e: (e.field_path, e.source_reference or "", e.id)
+            profile.evidence,
+            key=lambda e: (
+                e.verification_status != "VERIFIED",
+                e.field_path, e.source_reference or "", e.id,
+            ),
         )
+        verified_count = sum(
+            e.verification_status == "VERIFIED" for e in evidence_list
+        )
+        if verified_count != len(evidence_list):
+            st.warning(
+                f"{len(evidence_list) - verified_count} of {len(evidence_list)} "
+                "stored quotations could not be verified against the original CV. "
+                "These are model-generated or unmatched text, not reliable CV "
+                "evidence. They cannot be approved or used to increase HR scores. "
+                "Inspect the original CV and rerun profile extraction if needed."
+            )
         if not evidence_list:
             st.info("No extracted source evidence is available for HR review.")
         else:
             selected_evidence = st.selectbox(
                 "Select source quotation",
                 evidence_list,
-                format_func=lambda e: (
-                    f"{e.field_path.replace('_', ' ')} · "
-                    f"{e.source_excerpt[:90]} · page {e.page_number or '?'}"
-                ),
+                format_func=evidence_choice_label,
                 key=f"hr_evidence_choice_{selected}_{profile.id}",
             )
-            st.markdown("**Original source quotation**")
+            st.markdown("**Stored extraction quotation**")
             st.write(selected_evidence.source_excerpt)
+            if selected_evidence.verification_status != "VERIFIED":
+                st.error(
+                    "This text was not located in the original CV. "
+                    "Do not treat it as evidence. Reject this entry if it is incorrect; "
+                    "a new, source-backed extraction is required to approve a quotation."
+                )
             st.caption(
                 f"Original verification: {selected_evidence.verification_status} · "
                 f"Source: {selected_evidence.source_reference or 'unknown'}"
@@ -300,7 +334,9 @@ def candidate_review(ats):
             with st.form(f"hr_evidence_review_{profile.id}_{selected_evidence.id}"):
                 decision = st.radio(
                     "HR assessment",
-                    ["APPROVE", "REJECT", "CORRECT"],
+                    (["APPROVE", "REJECT", "CORRECT"]
+                     if selected_evidence.verification_status == "VERIFIED"
+                     else ["REJECT"]),
                     format_func=lambda v: v.title(),
                     horizontal=True,
                 )
