@@ -56,7 +56,7 @@ class Runtime:
         self.job_analysis = JobAnalysisService(self.db, self.provider, self.ollama_settings)
         self.profiles = CandidateProfileService(self.db)
         self.evidence_reviews = EvidenceReviewService(self.db, self.profiles)
-        self.hr_scores = HRScoreService(self.db)
+        self.hr_scores = HRScoreService(self.db, settings.llama_scoring_model)
         self.cv_analysis = CVAnalysisService(
             self.db,
             self.documents,
