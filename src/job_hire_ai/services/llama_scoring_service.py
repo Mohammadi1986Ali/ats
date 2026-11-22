@@ -94,6 +94,22 @@ def _relevant_evidence(criterion, evidence, limit=12):
     return selected, len(evidence) > len(selected)
 
 
+def _has_conflicting_findings(result) -> bool:
+    """Identify old 1B outputs with a review status but an EVIDENCED-only reason."""
+    return (
+        result is not None
+        and result.status == "COMPLETED"
+        and isinstance(result.breakdown, list)
+        and any(
+            isinstance(row, dict)
+            and row.get("status") != "EVIDENCED"
+            and str(row.get("reason", "")).strip().upper() == "EVIDENCED"
+            and bool(row.get("evidence"))
+            for row in result.breakdown
+        )
+    )
+
+
 class LlamaScoringService:
     """Use a local Llama model to identify JD evidence, then apply explicit weights."""
 
@@ -192,7 +208,8 @@ class LlamaScoringService:
                     CandidateProfile.document_id == document_id
                 ).limit(1))
             if activated is not None and has_profile is not None:
-                if self.current(document_id) is None:
+                current = self.current(document_id)
+                if current is None or _has_conflicting_findings(current):
                     return document_id
         return None
 
@@ -218,7 +235,7 @@ class LlamaScoringService:
                 LlamaScoreResult.profile_id == profile.id,
                 LlamaScoreResult.model_name == self.provider.settings.model,
             ))
-            if existing is not None and not force:
+            if existing is not None and not force and not _has_conflicting_findings(existing):
                 return existing
             criteria = list(session.scalars(select(JobCriterion).where(
                 JobCriterion.configuration_id == configuration.id
@@ -397,6 +414,13 @@ class LlamaScoringService:
                                 and (checked.status != "EVIDENCED" or checked.evidence_ids)
                             ):
                                 item = checked
+                                if (
+                                    item.status != "EVIDENCED"
+                                    and item.reason.strip().upper() == "EVIDENCED"
+                                ):
+                                    item = item.model_copy(update={
+                                        "reason": "Conflicting model finding; human review required.",
+                                    })
                             else:
                                 item = item.model_copy(update={
                                     "reason": "Conflicting model finding; human review required.",
