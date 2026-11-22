@@ -596,3 +596,30 @@ Re-scoring against HR-reviewed evidence belongs to Phase 4.3.
 
 No migration or data reset is required. Targeted regression checks:
 `uv run pytest -q tests/test_evidence_review_service.py`.
+
+
+## Phase 4.3: HR-reviewed score recalculation
+
+On the **HR Candidate Review** screen, complete one or more source-evidence reviews,
+then use **Recalculate using HR evidence reviews**. The calculation reads the latest
+Approve/Reject/Correct event per verified CV evidence source and the completed
+current Llama criteria assessment. It saves an append-only score snapshot in
+`profile_review_events` under `__hr_score__.<configuration_id>`, including
+source review event IDs, original AI score, the new score, per-criterion rationale,
+reviewer and note. Neither the original AI score nor CV or embedding records change.
+
+A rejected source cannot support its former criterion. Unknown evidence remains
+pending review, not proof that a candidate lacks skills. A criterion marked
+unclear can receive positive documented coverage only when it was created by
+the conservative literal JD technology recovery and HR has explicitly approved
+or corrected a verified CV excerpt that directly states the named technology.
+Complex experience requirements are never inferred from a bare technology token.
+This is *documented JD evidence coverage*, not a candidate ranking or hiring decision.
+
+Each recalculation is idempotent while evidence reviews and the model score are
+unchanged. Subsequent evidence edits or model rescoring mark previous results
+stale and permit a new auditable calculation. Historical snapshots remain
+available. No schema migration or data reset is required.
+
+Targeted tests (not yet verified in the current remote session):
+`uv run pytest -q tests/test_hr_score_service.py tests/test_evidence_review_service.py`.
