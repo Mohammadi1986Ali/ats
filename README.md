@@ -649,3 +649,25 @@ from loosely similar skills. Requirements with no verified linked quotes are
 clearly marked as missing evidence, not as proof of missing competence.
 This keeps HR review organized by JD requirements and leaves the original
 source evidence and scoring snapshots untouched.
+
+
+### JD-citation evidence review (fix for miscategorized extraction fields)
+
+HR review is now keyed by the **JD criterion and its exact source citation**,
+not by the CV extraction profile's field path. For example, a real original CV
+block that says "Cloud: Docker, Kubernetes, Azure" can be reviewed under the
+**Docker** JD requirement without falsely labeling it "Language Skills: en"
+when the local extraction model mistakenly attached that block to a language.
+The new JD-specific review form displays source quote and page, not an
+unreliable extracted qualification category.
+
+Every Approve, Reject or Correct action is revalidated against the stored
+original CV source block, saved as append-only `__jd_evidence__.*` review events
+and applied by the HR evidence score recalculation. A JD citation cannot be
+reviewed under a different criterion. For simple literal technology criteria,
+the reviewed quotation must explicitly contain the criterion's technology name;
+a verified source location alone is insufficient. Original AI scores, CV files,
+earlier source-level reviews and audit snapshots are preserved.
+
+Targeted regression tests:
+`uv run pytest -q tests/test_hr_score_service.py tests/test_hr_review_ui.py`.
