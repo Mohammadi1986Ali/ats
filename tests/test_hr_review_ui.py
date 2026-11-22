@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 from job_hire_ai.hr_review_ui import (
     criterion_details, evidence_choice_label, evidence_groups,
-    evidence_record_label, grouped_evidence_label, review_summary,
+    evidence_record_label, grouped_evidence_label, requirement_evidence, review_summary,
 )
 from tests.test_job_matching import approve_criteria, make_data
 
@@ -188,3 +188,47 @@ def test_hr_evidence_table_uses_three_readable_columns():
     assert '"Page"' in table
     assert '"Linked records"' not in table
     assert '"Verification"' not in table
+
+
+def test_requirement_evidence_links_only_exact_verified_saved_quotes():
+    from types import SimpleNamespace
+
+    java = SimpleNamespace(
+        id="j", verification_status="VERIFIED",
+        source_reference="pdf:p2:block4", page_number=2,
+        source_excerpt="Java and Kafka",
+    )
+    wrong_page = SimpleNamespace(
+        id="other", verification_status="VERIFIED",
+        source_reference="pdf:p2:block4", page_number=3,
+        source_excerpt="Java and Kafka",
+    )
+    unverified = SimpleNamespace(
+        id="bad", verification_status="UNVERIFIED",
+        source_reference="pdf:p2:block4", page_number=2,
+        source_excerpt="Java and Kafka",
+    )
+    uncited = SimpleNamespace(
+        id="u", verification_status="VERIFIED",
+        source_reference="pdf:p1:block1", page_number=1,
+        source_excerpt="PostgreSQL",
+    )
+    finding = {
+        "criterion": "Java", "evidence": [{
+            "source_reference": "pdf:p2:block4",
+            "page_number": 2, "source_excerpt": "Java and Kafka",
+        }]
+    }
+    selected = requirement_evidence(finding, [java, wrong_page, unverified, uncited])
+    assert [item.id for item in selected] == ["j"]
+    assert requirement_evidence({"criterion": "Redis", "evidence": []}, [java]) == []
+
+
+def test_jd_requirement_selection_precedes_source_quotation_table():
+    from inspect import getsource
+
+    from job_hire_ai.hr_review_ui import candidate_review
+
+    body = getsource(candidate_review)
+    assert body.index('"Job requirement"') < body.index('quote_rows = [')
+    assert 'requirement_evidence(chosen_requirement, evidence_list)' in body
