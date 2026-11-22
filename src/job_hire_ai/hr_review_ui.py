@@ -111,7 +111,31 @@ def candidate_review(ats):
     if not filtered:
         st.info("No matching CVs.")
         return
-    st.dataframe(pd.DataFrame(filtered), hide_index=True, width="stretch")
+    overview = pd.DataFrame([{
+        "CV ID": row["CV ID"],
+        "Filename": row["Filename"],
+        "JD coverage": (
+            f'{row["Evidence score"]}/100'
+            if row["Evidence score"] is not None else "Not scored"
+        ),
+        "Review needed": (
+            f'{row["Review needed (%)"]}%'
+            if row["Review needed (%)"] is not None else "Unknown"
+        ),
+        "Classification": row["Classification"],
+        "Llama": row["Llama status"],
+    } for row in filtered])
+    st.dataframe(
+        overview, hide_index=True, width="stretch",
+        column_config={
+            "CV ID": st.column_config.NumberColumn(width="small"),
+            "Filename": st.column_config.TextColumn(width="large"),
+            "JD coverage": st.column_config.TextColumn(width="small"),
+            "Review needed": st.column_config.TextColumn(width="small"),
+            "Classification": st.column_config.TextColumn(width="medium"),
+            "Llama": st.column_config.TextColumn(width="small"),
+        },
+    )
     options = {row["CV ID"]: row for row in filtered}
     selected = st.selectbox(
         "Inspect CV", list(options),
