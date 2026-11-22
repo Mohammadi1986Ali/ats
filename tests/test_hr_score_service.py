@@ -176,3 +176,93 @@ def test_score_snapshot_becomes_stale_after_new_hr_evidence_review(ats, vacancy,
     assert not ats.hr_scores.is_current(doc_id, snapshot)
     ats.hr_scores.calculate(doc_id, "HR", "Recalculated.")
     assert ats.hr_scores.is_current(doc_id, ats.hr_scores.history(doc_id)[0])
+
+
+def test_jd_specific_review_rejects_docker_style_quote_without_profile_field(ats, vacancy, pdf):
+    doc_id, profile_id, _ = _setup(ats, vacancy, pdf)
+    score = ats.llama_scoring.current(doc_id)
+    criterion = score.breakdown[0]
+    quote = criterion["evidence"][0]
+
+    # The JD-review source is the actual original CV quote, regardless of what
+    # unrelated extracted qualification field the 1B model attached it to.
+    event_id = ats.jd_reviews.record(
+        doc_id, criterion["criterion_id"], quote, "REJECT",
+        "HR", "Quote does not establish the job requirement.",
+    )
+    assert event_id
+    assert ats.jd_reviews.history(doc_id, criterion["criterion_id"], quote)[0].id == event_id
+    ats.hr_scores.calculate(doc_id, "HR", "Apply JD-specific rejection.")
+    snapshot = ats.hr_scores.history(doc_id)[0]
+    assert snapshot.corrected_value["score"] == 0
+    assert snapshot.corrected_value["review_weight"] == 100
+    assert ats.hr_scores.is_current(doc_id, snapshot)
+    assert ats.llama_scoring.current(doc_id).score == 100
+    assert ats.profiles.effective(ats.profiles.get(profile_id))
+
+
+def test_jd_specific_approval_after_rejection_recalculates_without_mutating_cv(
+    ats, vacancy, pdf
+):
+    doc_id, profile_id, _ = _setup(ats, vacancy, pdf)
+    result = ats.llama_scoring.current(doc_id).breakdown[0]
+    criterion_id, quote = result["criterion_id"], result["evidence"][0]
+    original = ats.documents.download(doc_id)[1]
+    rejected = ats.jd_reviews.record(
+        doc_id, criterion_id, quote, "REJECT", "HR", "Needs context."
+    )
+    ats.hr_scores.calculate(doc_id, "HR", "First calculation.")
+    ats.jd_reviews.record(
+        doc_id, criterion_id, quote, "APPROVE", "HR", "Confirmed in source.",
+        expected_last_event_id=rejected,
+    )
+    assert not ats.hr_scores.is_current(doc_id, ats.hr_scores.history(doc_id)[0])
+    ats.hr_scores.calculate(doc_id, "HR", "Second calculation.")
+    assert [x.corrected_value["score"] for x in ats.hr_scores.history(doc_id)] == [100, 0]
+    assert ats.documents.download(doc_id)[1] == original
+    assert ats.profiles.status(ats.profiles.get(profile_id)) in {
+        "COMPLETED", "NEEDS_REVIEW"
+    }
+
+
+def test_jd_review_rejects_unlisted_or_fabricated_quote(ats, vacancy, pdf):
+    doc_id, _, _ = _setup(ats, vacancy, pdf)
+    finding = ats.llama_scoring.current(doc_id).breakdown[0]
+    criterion_id, quote = finding["criterion_id"], finding["evidence"][0]
+    with pytest.raises(ATSError, match="not linked"):
+        ats.jd_reviews.record(
+            doc_id, criterion_id + 12345, quote, "APPROVE", "HR", "Wrong JD."
+        )
+    changed = dict(quote, source_excerpt="Invented Docker years of experience.")
+    with pytest.raises(ATSError, match="not linked"):
+        ats.jd_reviews.record(
+            doc_id, criterion_id, changed, "APPROVE", "HR", "Fabricated CV source."
+        )
+
+
+def test_jd_review_does_not_promote_unrelated_language_field():
+    from job_hire_ai.services.jd_review_service import quote_key
+
+    criterion = SimpleNamespace(
+        id=42, name="Docker", weight=100,
+        description="Explicit technology mentioned in the job description.",
+    )
+    quote = {"source_reference": "pdf:p3:block2", "page_number": 3,
+             "source_excerpt": "Cloud: Docker, Kubernetes, Azure"}
+    original = [{"criterion_id": 42, "status": "REVIEW_REQUIRED", "evidence": [quote]}]
+    misplaced = SimpleNamespace(
+        id="lang", field_path="language_skills.0",
+        source_excerpt=quote["source_excerpt"],
+        source_reference=quote["source_reference"], page_number=3,
+    )
+    legacy_approval = SimpleNamespace(corrected_value={"decision": "APPROVE"})
+    without_jd_review = reviewed_breakdown(
+        [criterion], original, [misplaced], {"lang": legacy_approval}
+    )
+    assert without_jd_review["score"] == 0
+    jd_event = SimpleNamespace(corrected_value={"decision": "APPROVE"})
+    with_jd_review = reviewed_breakdown(
+        [criterion], original, [misplaced], {},
+        {quote_key(criterion.id, quote): jd_event},
+    )
+    assert with_jd_review["score"] == 100
