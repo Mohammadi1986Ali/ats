@@ -22,8 +22,14 @@ SCORE_PREFIX = "__hr_score__."
 def _has_term(text, term):
     if not text or not term:
         return False
+    token = re.escape(term.strip())
+    if re.search(
+        r"\b(no|not|without|never|lack(?:s|ing)?)\s+"
+        r"(?:experience\s+(?:in|with)\s+)?" + token + r"\b", text, re.I
+    ):
+        return False
     return bool(re.search(
-        r"(?<!\w)" + re.escape(term.strip()) + r"(?!\w)", text, re.I
+        r"(?<!\w)" + token + r"(?!\w)", text, re.I
     ))
 
 
