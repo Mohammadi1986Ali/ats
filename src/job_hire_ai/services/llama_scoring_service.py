@@ -195,6 +195,8 @@ class LlamaScoringService:
                 or row.error_summary.startswith("Llama scoring was interrupted")
                 or row.error_summary.startswith("Ollama timed out or disconnected")
                 or row.error_summary.startswith("Llama returned incomplete")
+                or row.error_summary.startswith("Llama returned unknown JD criterion IDs")
+                or row.error_summary.startswith("Llama returned the wrong JD criterion ID")
                 or row.error_summary.startswith(
                     "Llama attached positive evidence to an unsupported finding."
                 )
@@ -391,11 +393,23 @@ class LlamaScoringService:
                         single = self.provider.generate_structured(
                             single_prompt, LlamaCriterionFinding, output_limit=260
                         ).extraction
-                        if single.criterion_id != criterion.id:
-                            raise ATSError("Llama returned the wrong JD criterion ID.") from exc
                         permitted_single = {row["id"] for row in brief_evidence}
                         if any(ref not in permitted_single for ref in single.evidence_ids):
                             raise ATSError("Llama invented an individual evidence ID.") from exc
+                        if single.status == "EVIDENCED" and not single.evidence_ids:
+                            raise ATSError("Llama claimed evidence without any verified source.") from exc
+                        if single.criterion_id != criterion.id:
+                            # Only one criterion was sent to this model call.
+                            # Its generated numeric ID is untrusted formatting,
+                            # not evidence. Map the finding to the single requested
+                            # criterion after checking all source references.
+                            logger.warning(
+                                "Correcting isolated Llama criterion ID %s to %s for CV %s",
+                                single.criterion_id, criterion.id, document_id,
+                            )
+                            single = single.model_copy(
+                                update={"criterion_id": criterion.id}
+                            )
                         received[criterion.id] = single
 
                 permitted = {refs_to_ids[row.id] for row in chosen.values()}
