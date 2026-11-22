@@ -151,3 +151,17 @@ def test_identical_unverified_quote_does_not_merge_with_verified_quote():
     assert evidence_record_label(verified, {"education": [{"degree": "MSc"}]}) == (
         "Education: MSc"
     )
+
+
+def test_hr_evidence_picker_uses_selectable_tables_not_long_dropdowns():
+    from inspect import getsource
+
+    from job_hire_ai.hr_review_ui import candidate_review
+
+    source = getsource(candidate_review)
+    picker = source.split('groups = evidence_groups(matching, payload)', 1)[1]
+    picker = picker.split('with st.expander("Advanced: original structured profile', 1)[0]
+    assert 'selection_mode="single-row"' in picker
+    assert '"Select a unique source quotation"' not in picker
+    assert '"Qualification to review"' not in picker
+    assert 'selected_evidence = None' in picker
