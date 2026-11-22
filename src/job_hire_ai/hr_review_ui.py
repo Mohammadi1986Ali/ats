@@ -127,6 +127,19 @@ def evidence_groups(evidence, profile_data):
     )
 
 
+SECTION_HEADINGS = {
+    "experience", "employment", "employment history", "work experience",
+    "professional experience", "technical skills", "skills", "education",
+    "projects", "certifications", "languages", "language skills",
+    "qualifications", "summary", "profile",
+}
+
+
+def is_section_heading(excerpt):
+    """Identify obvious section labels without discarding their source records."""
+    return " ".join((excerpt or "").split()).strip(":").casefold() in SECTION_HEADINGS
+
+
 def grouped_evidence_label(grouped):
     items, labels = grouped
     representative = items[0]
@@ -383,10 +396,21 @@ def candidate_review(ats):
                     e.source_excerpt + " " + evidence_record_label(e, payload)
                 ).casefold())
             ]
-            groups = evidence_groups(matching, payload)
+            show_headings = st.checkbox(
+                "Include CV section headings",
+                value=False,
+                key=f"hr_evidence_headings_{selected}_{profile.id}",
+                help="Show labels such as EXPERIENCE or EDUCATION. "
+                     "They are source text, but not useful qualification evidence.",
+            )
+            visible = [
+                e for e in matching
+                if show_headings or not is_section_heading(e.source_excerpt)
+            ]
+            groups = evidence_groups(visible, payload)
             st.caption(
-                f"{len(groups)} distinct source quotations from "
-                f"{len(matching)} saved evidence records"
+                f"{len(groups)} unique quotations from {len(visible)} evidence "
+                "records. Select a row to view the full text below."
             )
             if not groups:
                 st.info("No evidence matches these filters.")
@@ -394,14 +418,12 @@ def candidate_review(ats):
                 st.caption("Click a row to inspect its CV evidence. No long dropdowns.")
                 quote_rows = [
                     {
-                        "Qualification": (
-                            labels[0] if len(labels) == 1
-                            else f"{len(labels)} linked qualifications"
-                        ),
                         "CV quotation": " ".join(members[0].source_excerpt.split()),
+                        "Related qualification": (
+                            labels[0] if len(labels) == 1
+                            else f"{len(labels)} qualifications"
+                        ),
                         "Page": members[0].page_number,
-                        "Verification": members[0].verification_status.title(),
-                        "Linked records": len(members),
                     }
                     for members, labels in groups
                 ]
@@ -412,13 +434,11 @@ def candidate_review(ats):
                     height=min(310, 38 * (len(quote_rows) + 1) + 6),
                     selection_mode="single-row",
                     on_select="rerun",
-                    key=f"hr_quote_table_{selected}_{profile.id}_{category}_{status_filter}_{query}",
+                    key=f"hr_quote_table_{selected}_{profile.id}_{category}_{status_filter}_{query}_{show_headings}",
                     column_config={
-                        "Qualification": st.column_config.TextColumn(width="medium"),
                         "CV quotation": st.column_config.TextColumn(width="large"),
+                        "Related qualification": st.column_config.TextColumn(width="medium"),
                         "Page": st.column_config.NumberColumn(width="small"),
-                        "Verification": st.column_config.TextColumn(width="small"),
-                        "Linked records": st.column_config.NumberColumn(width="small"),
                     },
                 )
                 chosen_rows = quote_table.selection.rows
